@@ -68,7 +68,30 @@ hr{border:0;border-top:1px solid var(--borde);margin:24px 0}
 .sheet{background:#fff;width:100%;max-width:640px;border-radius:18px 18px 0 0;padding:16px;max-height:92vh;overflow:auto}
 #toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90%}
 #toast.on{opacity:1}
-@media print{#app,#toast,.noprint{display:none!important}.modal{position:static;background:#fff}.sheet{max-height:none;overflow:visible;border-radius:0}}
+.factura{font-size:14px}
+.fhead{display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;color:#fff;background:linear-gradient(135deg,var(--verde),var(--morado));border-bottom:5px solid var(--naranja);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.flogo{width:44px;height:44px;flex:none;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800}
+.fh1{flex:1}.fh1 b{display:block;font-size:20px}.fh1 span,.fh2 span{font-size:12px;opacity:.9}
+.fh2{text-align:right}.fh2 b{display:block;font-size:15px}
+.fcli{display:flex;justify-content:space-between;gap:12px;padding:14px 2px}
+.fcli small{display:block;color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}
+.fcli b{display:block;font-size:17px;margin:2px 0}
+.fcli span{display:block;font-size:13px}
+.ft{width:100%;border-collapse:collapse}
+.ft th{background:var(--morado-claro);color:var(--morado);text-align:left;padding:8px;font-size:11px;letter-spacing:.4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ft td{padding:8px;border-bottom:1px solid var(--borde);vertical-align:top}
+.ft tbody tr:nth-child(even) td{background:#faf7fb}
+.ft .n{text-align:right;white-space:nowrap}
+.ft thead{display:table-header-group}.ft tr{break-inside:avoid;page-break-inside:avoid}
+.ftot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px;color:var(--gris);font-size:13px}
+.ftb{background:var(--naranja-claro);border-radius:12px;padding:10px 16px;text-align:right;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ftb small{display:block;color:var(--naranja);font-weight:700;font-size:11px}.ftb b{font-size:24px;color:var(--naranja)}
+.fpie{text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--borde);font-weight:800;color:var(--morado);font-size:16px}
+.fpie small{display:block;font-weight:400;color:var(--gris);font-size:12px;margin-top:4px}
+.acciones .btn{padding:11px;margin:0 0 6px;font-size:15px}.acciones .ghost{padding:9px 6px;font-size:14px}
+.acciones{position:sticky;bottom:0;background:#fff;padding:10px 0 4px;margin-top:12px;border-top:1px solid var(--borde)}
+@page{margin:10mm}
+@media print{body{background:#fff}#app,#toast,.noprint{display:none!important}.modal{position:static;background:#fff}.sheet{max-height:none;overflow:visible;border-radius:0;padding:0}}
 </style>
 </head>
 <body>
@@ -498,36 +521,240 @@ async function guardarPedido() {
 }
 
 /* ---------------------------- FACTURA ---------------------------- */
+const textoEstado = p => p.estado === "pendiente" ? "Pendiente de entrega" : p.estado === "cancelado" ? "Cancelado" : p.saldo > 0 ? "Entregado · saldo pendiente" : "Entregado · pagado";
+const colorEstado = p => p.estado === "cancelado" ? "#c62828" : (p.estado === "pendiente" || p.saldo > 0) ? "#ef6c00" : "#2e7d32";
+
+function descargarBlob(blob, nombre) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+
+/* Dibuja la factura como imagen (PNG), de la altura que necesite el pedido */
+function facturaCanvas(p) {
+  const W = 800, PAD = 40;
+  const VERDE = "#2e7d32", MORADO = "#6a1b9a", NARANJA = "#ef6c00", GRIS = "#6b7280", TEXTO = "#1f2937", BORDE = "#e5e7eb";
+  const F = (px, w = 400) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+  const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
+
+  const cortar = (ctx, t, maxW, font) => {
+    ctx.font = font;
+    let s = String(t);
+    if (ctx.measureText(s).width <= maxW) return s;
+    while (s.length > 1 && ctx.measureText(s + "…").width > maxW) s = s.slice(0, -1);
+    return s + "…";
+  };
+  const envolver = (ctx, txt, maxW, maxLin, font) => {
+    ctx.font = font;
+    const lineas = [];
+    let cur = "";
+    for (const w of String(txt).split(/\s+/)) {
+      const t = cur ? cur + " " + w : w;
+      if (!cur || ctx.measureText(t).width <= maxW) cur = t;
+      else { lineas.push(cur); cur = w; }
+    }
+    if (cur) lineas.push(cur);
+    if (lineas.length > maxLin) { lineas.length = maxLin; lineas[maxLin - 1] += "…"; }
+    return lineas.map(l => cortar(ctx, l, maxW, font));
+  };
+  const rr = (ctx, x, y, w, h, r) => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  };
+  const T = (ctx, txt, x, y, font, color, align = "left") => {
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = "top";
+    ctx.fillText(txt, x, y);
+  };
+
+  const dibujar = ctx => {
+    /* Encabezado */
+    const g = ctx.createLinearGradient(0, 0, W, 0);
+    g.addColorStop(0, VERDE);
+    g.addColorStop(1, MORADO);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, 120);
+    ctx.fillStyle = NARANJA;
+    ctx.fillRect(0, 120, W, 6);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    rr(ctx, PAD, 26, 68, 68, 18);
+    ctx.fill();
+    T(ctx, "E", PAD + 34, 40, F(40, 800), "#fff", "center");
+    T(ctx, NEGOCIO, PAD + 88, 28, F(34, 800), "#fff");
+    T(ctx, "Factura de pedido", PAD + 88, 72, F(16), "rgba(255,255,255,0.88)");
+    T(ctx, "Pedido #" + cod(p), W - PAD, 30, F(22, 700), "#fff", "right");
+    T(ctx, fh(p.ts), W - PAD, 64, F(15), "rgba(255,255,255,0.88)", "right");
+
+    /* Cliente y estado */
+    let y = 156;
+    T(ctx, "CLIENTE", PAD, y, F(12, 700), GRIS);
+    let yl = y + 18;
+    envolver(ctx, p.cliente, 440, 2, F(22, 800)).forEach(l => { T(ctx, l, PAD, yl, F(22, 800), TEXTO); yl += 28; });
+    yl += 4;
+    if (p.telefono) { T(ctx, "Tel: " + p.telefono, PAD, yl, F(15), TEXTO); yl += 22; }
+    if (p.direccion) envolver(ctx, p.direccion, 440, 2, F(15)).forEach(l => { T(ctx, l, PAD, yl, F(15), TEXTO); yl += 21; });
+    T(ctx, "ESTADO", W - PAD, y, F(12, 700), GRIS, "right");
+    let yr = y + 18;
+    envolver(ctx, textoEstado(p), 250, 2, F(16, 700)).forEach(l => { T(ctx, l, W - PAD, yr, F(16, 700), colorEstado(p), "right"); yr += 22; });
+    y = Math.max(yl, yr) + 18;
+
+    /* Tabla de productos */
+    ctx.fillStyle = "#f3e5f5";
+    rr(ctx, PAD, y, W - 2 * PAD, 34, 8);
+    ctx.fill();
+    T(ctx, "CANT.", PAD + 14, y + 11, F(12, 700), MORADO);
+    T(ctx, "PRODUCTO", 118, y + 11, F(12, 700), MORADO);
+    T(ctx, "V. UNIT.", 596, y + 11, F(12, 700), MORADO, "right");
+    T(ctx, "SUBTOTAL", W - PAD - 14, y + 11, F(12, 700), MORADO, "right");
+    y += 34;
+    p.items.forEach((i, k) => {
+      const lin = envolver(ctx, i.nombre, 380, 2, F(16));
+      const h = lin.length * 21 + 18;
+      if (k % 2) { ctx.fillStyle = "#faf7fb"; ctx.fillRect(PAD, y, W - 2 * PAD, h); }
+      T(ctx, String(i.cantidad), PAD + 14, y + 9, F(16, 700), TEXTO);
+      lin.forEach((l, n) => T(ctx, l, 118, y + 9 + n * 21, F(16), TEXTO));
+      T(ctx, money(i.precio), 596, y + 9, F(15), GRIS, "right");
+      T(ctx, money(i.cantidad * i.precio), W - PAD - 14, y + 9, F(16, 700), TEXTO, "right");
+      ctx.fillStyle = BORDE;
+      ctx.fillRect(PAD, y + h - 1, W - 2 * PAD, 1);
+      y += h;
+    });
+
+    /* Totales */
+    y += 22;
+    T(ctx, `${p.items.length} producto(s) · ${unidades} unidad(es)`, PAD, y + 24, F(15), GRIS);
+    const bx = W - PAD - 320;
+    ctx.fillStyle = "#fff3e0";
+    rr(ctx, bx, y, 320, 66, 14);
+    ctx.fill();
+    T(ctx, "TOTAL", bx + 18, y + 14, F(13, 700), NARANJA);
+    T(ctx, money(p.total), bx + 302, y + 16, F(32, 800), NARANJA, "right");
+    y += 66;
+    if (p.estado === "entregado") {
+      y += 14;
+      T(ctx, "Pagado", bx + 18, y, F(15), GRIS);
+      T(ctx, money(p.pagado), bx + 302, y, F(15, 700), VERDE, "right");
+      y += 24;
+      T(ctx, "Saldo pendiente", bx + 18, y, F(15), GRIS);
+      T(ctx, money(p.saldo), bx + 302, y, F(15, 700), p.saldo > 0 ? NARANJA : VERDE, "right");
+      y += 22;
+    }
+    if (p.nota) {
+      y += 22;
+      T(ctx, "OBSERVACIONES", PAD, y, F(12, 700), GRIS);
+      y += 18;
+      envolver(ctx, p.nota, W - 2 * PAD, 3, F(15)).forEach(l => { T(ctx, l, PAD, y, F(15), TEXTO); y += 21; });
+    }
+
+    /* Pie */
+    y += 26;
+    ctx.fillStyle = BORDE;
+    ctx.fillRect(PAD, y, W - 2 * PAD, 1);
+    T(ctx, "¡Gracias por tu compra!", W / 2, y + 20, F(20, 800), MORADO, "center");
+    T(ctx, `Atendió: ${p.vendedor} · ${NEGOCIO}`, W / 2, y + 52, F(13), GRIS, "center");
+    y += 86;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, W, 8);
+    return y + 8;
+  };
+
+  const tmp = document.createElement("canvas");
+  tmp.width = W;
+  tmp.height = 10;
+  const H = dibujar(tmp.getContext("2d"));
+  const SC = Math.min(2, 15000 / H);
+  const c = document.createElement("canvas");
+  c.width = Math.round(W * SC);
+  c.height = Math.ceil(H * SC);
+  const ctx = c.getContext("2d");
+  ctx.scale(SC, SC);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+  dibujar(ctx);
+  return c;
+}
+
+async function facturaBlob(p) {
+  const c = facturaCanvas(p);
+  const blob = await new Promise(r => c.toBlob(r, "image/png"));
+  if (!blob) throw new Error("no se pudo crear la imagen");
+  return blob;
+}
+
+async function compartirFactura(p) {
+  try {
+    const blob = await facturaBlob(p);
+    const nombre = `Factura-Emunah-${cod(p)}.png`;
+    const file = new File([blob], nombre, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: `Factura ${NEGOCIO}`, text: `Factura ${NEGOCIO} · ${p.cliente} · ${money(p.total)}` });
+        return;
+      } catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    descargarBlob(blob, nombre);
+    toast("La imagen se guardó en tu celular. Adjúntala en WhatsApp.");
+  } catch (e) { toast("No se pudo crear la factura: " + e.message); }
+}
+
 function factura(p) {
-  const m = mapa(p);
-  const estado = p.estado === "pendiente" ? "Pendiente de entrega" : p.estado === "cancelado" ? "Cancelado" : p.saldo > 0 ? `Entregado · debe ${money(p.saldo)}` : "Entregado y pagado";
+  const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
   const w = modal(`
     <div class="factura">
-      <div style="text-align:center">
-        <div class="logo" style="width:48px;height:48px;font-size:26px;border-radius:14px;border-bottom-width:4px">E</div>
-        <h3 style="margin:6px 0 0">${NEGOCIO}</h3>
-        <small style="color:var(--gris)">Factura · Pedido #${cod(p)}</small>
+      <div class="fhead">
+        <div class="flogo">E</div>
+        <div class="fh1"><b>${NEGOCIO}</b><span>Factura de pedido</span></div>
+        <div class="fh2"><b>Pedido #${cod(p)}</b><span>${fh(p.ts)}</span></div>
       </div>
-      <div class="lin"><span>Fecha</span><span>${fh(p.ts)}</span></div>
-      <div class="lin"><span>Cliente</span><span>${esc(p.cliente)}</span></div>
-      ${p.telefono ? `<div class="lin"><span>Teléfono</span><span>${esc(p.telefono)}</span></div>` : ""}
-      ${p.direccion ? `<div class="lin"><span>Dirección</span><span style="text-align:right">${esc(p.direccion)}</span></div>` : ""}
-      ${m ? `<div class="lin"><span>Ubicación</span><a href="${m}" target="_blank" rel="noopener">Ver en el mapa</a></div>` : ""}
-      <div style="margin:10px 0">${p.items.map(i => `<div class="lin"><span>${i.cantidad}× ${esc(i.nombre)}</span><span>${money(i.cantidad * i.precio)}</span></div>`).join("")}</div>
-      <div class="total"><span>Total</span><b>${money(p.total)}</b></div>
-      <div class="lin"><span>Estado</span><span>${esc(estado)}</span></div>
-      ${p.nota ? `<div class="lin"><span>Observaciones</span><span style="text-align:right">${esc(p.nota)}</span></div>` : ""}
-      <div class="lin"><span>Atendió</span><span>${esc(p.vendedor)}</span></div>
+      <div class="fcli">
+        <div>
+          <small>CLIENTE</small><b>${esc(p.cliente)}</b>
+          ${p.telefono ? `<span>Tel: ${esc(p.telefono)}</span>` : ""}
+          ${p.direccion ? `<span>${esc(p.direccion)}</span>` : ""}
+        </div>
+        <div style="text-align:right">
+          <small>ESTADO</small><b style="color:${colorEstado(p)};font-size:14px">${esc(textoEstado(p))}</b>
+        </div>
+      </div>
+      <table class="ft">
+        <thead><tr><th>Cant.</th><th>Producto</th><th class="n">V. unit.</th><th class="n">Subtotal</th></tr></thead>
+        <tbody>${p.items.map(i => `<tr><td><b>${i.cantidad}</b></td><td>${esc(i.nombre)}</td><td class="n">${money(i.precio)}</td><td class="n"><b>${money(i.cantidad * i.precio)}</b></td></tr>`).join("")}</tbody>
+      </table>
+      <div class="ftot">
+        <span>${p.items.length} producto(s) · ${unidades} unidad(es)</span>
+        <div class="ftb"><small>TOTAL</small><b>${money(p.total)}</b></div>
+      </div>
+      ${p.estado === "entregado" ? `<div class="lin"><span>Pagado</span><b style="color:var(--verde)">${money(p.pagado)}</b></div><div class="lin"><span>Saldo pendiente</span><b style="color:${p.saldo > 0 ? "var(--naranja)" : "var(--verde)"}">${money(p.saldo)}</b></div>` : ""}
+      ${p.nota ? `<div style="margin-top:10px"><small style="color:var(--gris);font-weight:700">OBSERVACIONES</small><div>${esc(p.nota)}</div></div>` : ""}
+      <div class="fpie">¡Gracias por tu compra!<small>Atendió: ${esc(p.vendedor)} · ${NEGOCIO}</small></div>
     </div>
-    <div class="noprint" style="margin-top:12px">
-      <button id="f-wa" class="btn">Compartir por WhatsApp</button>
-      <button id="f-pr" class="ghost" style="width:100%;margin-bottom:6px">Imprimir / guardar PDF</button>
-      <button id="f-x" class="ghost" style="width:100%">Cerrar</button>
+    <div class="noprint acciones">
+      <button id="f-sh" class="btn">📤 Compartir factura (WhatsApp)</button>
+      ${p.telefono ? '<button id="f-wa" class="ghost" style="width:100%;margin-bottom:6px">Enviar resumen al WhatsApp del cliente</button>' : ""}
+      <div class="row"><button id="f-pr" class="ghost" style="flex:1">🖨️ Imprimir</button><button id="f-dl" class="ghost" style="flex:1">⬇️ Imagen</button><button id="f-x" class="ghost" style="flex:1">Cerrar</button></div>
     </div>`);
   w.querySelector("#f-x").onclick = () => w.remove();
   w.querySelector("#f-pr").onclick = () => window.print();
-  w.querySelector("#f-wa").onclick = () => {
-    const txt = `*${NEGOCIO}* — Pedido #${cod(p)}\n${fh(p.ts)}\nCliente: ${p.cliente}\n\n${p.items.map(i => `• ${i.cantidad}× ${i.nombre} — ${money(i.cantidad * i.precio)}`).join("\n")}\n\n*Total: ${money(p.total)}*${p.direccion ? `\nEntrega en: ${p.direccion}` : ""}\n\n¡Gracias por tu compra!`;
+  w.querySelector("#f-sh").onclick = () => compartirFactura(p);
+  w.querySelector("#f-dl").onclick = async () => {
+    try {
+      descargarBlob(await facturaBlob(p), `Factura-Emunah-${cod(p)}.png`);
+      toast("Imagen guardada en tu celular");
+    } catch (e) { toast("No se pudo crear la imagen: " + e.message); }
+  };
+  if (p.telefono) w.querySelector("#f-wa").onclick = () => {
+    const txt = `*${NEGOCIO}* — Pedido #${cod(p)}\nCliente: ${p.cliente}\n${p.items.length} producto(s) · ${unidades} unidad(es)\n*Total: ${money(p.total)}*\n\n¡Gracias por tu compra!`;
     const tel = (p.telefono || "").replace(/\D/g, "");
     const num = tel.length === 10 ? "57" + tel : tel;
     window.open(`https://wa.me/${num}?text=${encodeURIComponent(txt)}`, "_blank");
