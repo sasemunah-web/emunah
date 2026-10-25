@@ -99,6 +99,14 @@ hr{border:0;border-top:1px solid var(--borde);margin:24px 0}
 .acciones .btn{padding:11px;margin:0 0 6px;font-size:15px}.acciones .ghost{padding:9px 6px;font-size:14px}
 .acciones{position:sticky;bottom:0;background:#fff;padding:10px 0 4px;margin-top:12px;border-top:1px solid var(--borde)}
 @page{margin:10mm}
+.buscador{position:relative;margin:6px 0}.buscador span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none}.buscador input{padding-left:38px;margin:0}
+.fcliente{display:flex;justify-content:space-between;gap:12px;background:var(--fondo);border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin:6px 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.fcliente small{display:block;color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}
+.fc1 b{display:block;font-size:19px;line-height:1.2;margin:2px 0}.fc1 span,.fc2 span{display:block;font-size:13px;margin-top:2px}
+.fc2{text-align:right;flex:none}.fc2 b{display:block;font-size:17px;color:var(--morado);margin-top:2px}
+.fdev{margin:10px 0 0;padding:8px 10px;border:1px dashed #c62828;border-radius:10px}.fdev small{color:#c62828;font-weight:700;font-size:11px;letter-spacing:.5px}
+.fvend{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--fondo);border:1px solid var(--borde);border-radius:12px;padding:10px 14px;margin-top:16px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.fvend small{display:block;color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}.fvend b{font-size:16px}.fvend span{color:var(--morado);font-weight:700;font-size:14px}
 @media print{body{background:#fff}#app,#toast,.noprint{display:none!important}.modal{position:static;background:#fff}.sheet{max-height:none;overflow:visible;border-radius:0;padding:0}}
 </style>
 </head>
@@ -133,6 +141,12 @@ const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.
 const hora = ts => new Date(ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 const fh = ts => new Date(ts).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const cod = p => p.numero || String(p.id || "").slice(0, 6).toUpperCase();
+const sumaDias = n => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const mesDe = d => (d || hoy()).slice(0, 7);
+const fdd = d => d ? d.split("-").reverse().join("/") : "";
+const etiquetaDia = d => d === hoy() ? "Hoy · " + fdd(d) : d === sumaDias(1) ? "Mañana · " + fdd(d) : d === sumaDias(-1) ? "Ayer · " + fdd(d) : fdd(d);
+const totalEntregado = p => p.estado === "entregado" && p.totalEntregado != null ? p.totalEntregado : p.total;
+const itemsFinales = p => p.estado === "entregado" && p.itemsEntregados ? p.itemsEntregados : p.items;
 const sum = a => a.reduce((t, x) => t + (x.total || 0), 0);
 const pantalla = html => { $("#app").innerHTML = html; };
 const esJefe = () => S.perfil && S.perfil.role === "jefe";
@@ -168,7 +182,7 @@ function errAuth(e) {
 const S = {
   perfil: null, productos: [], clientes: [], carrito: {}, clienteSel: "", nota: "",
   tab: "pedido", fecha: hoy(), busca: "", cat: "Todas", pbusca: "", pcat: "Todas",
-  cbusca: "", pend: [], docsCierre: [], registrando: false, unsub: null
+  cbusca: "", qcli: "", fentrega: sumaDias(2), mes: mesDe(), modoCierre: "dia", pend: [], docsCierre: [], registrando: false, unsub: null
 };
 let auth, db;
 
@@ -265,12 +279,17 @@ async function entrar(u) {
     S.clienteSel = "";
     S.nota = "";
     S.fecha = hoy();
-    S.busca = ""; S.cat = "Todas"; S.pbusca = ""; S.pcat = "Todas"; S.cbusca = "";
+    S.busca = ""; S.cat = "Todas"; S.pbusca = ""; S.pcat = "Todas"; S.cbusca = ""; S.qcli = ""; S.fentrega = sumaDias(2); S.mes = mesDe(); S.modoCierre = "dia";
     if (S.unsub) S.unsub();
-    S.unsub = onSnapshot(collection(db, "productos"), s => {
-      S.productos = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    const u1 = onSnapshot(collection(db, "productos"), q => {
+      S.productos = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
       refrescar();
     }, e => toast(errAuth(e)));
+    const u2 = onSnapshot(collection(db, "clientes"), q => {
+      S.clientes = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      refrescarClientes();
+    }, e => toast(errAuth(e)));
+    S.unsub = () => { u1(); u2(); };
     vistaApp();
   } catch (e) {
     vistaBloqueado(errAuth(e));
@@ -281,7 +300,7 @@ async function entrar(u) {
 function vistaApp() {
   const tabs = esJefe()
     ? [["pedido", "🛒", "Pedido"], ["entregas", "📦", "Entregas"], ["fiado", "💰", "Fiado"], ["clientes", "👤", "Clientes"], ["productos", "🏷️", "Productos"], ["cierre", "📊", "Cierre"], ["equipo", "👥", "Equipo"]]
-    : [["pedido", "🛒", "Pedido"], ["entregas", "📦", "Mis pedidos"], ["productos", "🏷️", "Productos"], ["cierre", "📊", "Cierre"]];
+    : [["pedido", "🛒", "Pedido"], ["entregas", "📦", "Mis pedidos"], ["clientes", "👤", "Clientes"], ["productos", "🏷️", "Productos"], ["cierre", "📊", "Cierre"]];
   pantalla(`
     <header>
       <div><b>${NEGOCIO}</b><small>${esc(S.perfil.nombre)} · ${esJefe() ? "Jefe" : "Vendedor"}</small></div>
@@ -307,52 +326,63 @@ function refrescar() {
 }
 
 /* ---------------------------- PEDIDO NUEVO ---------------------------- */
-async function tabPedido() {
+function tabPedido() {
   $("#main").innerHTML = `
-    <div class="card">
-      <h3>Cliente</h3>
-      <div class="row"><select id="cli" style="flex:1"></select><button id="cli-nuevo" class="ghost" style="white-space:nowrap">+ Nuevo</button></div>
-      <div id="cli-info"></div>
-    </div>
-    <input id="busca" type="search" placeholder="Buscar producto…" value="${esc(S.busca)}">
+    <div class="card" id="cli-card"></div>
+    <div class="buscador"><span>🔍</span><input id="busca" type="search" placeholder="Buscar producto…" value="${esc(S.busca)}"></div>
     <div class="chips" id="chips">${["Todas", ...cats()].map(c => `<button class="chip ${S.cat === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
     <div id="lista"></div>
     <div id="carrito"></div>`;
-  $("#cli").onchange = e => { S.clienteSel = e.target.value; renderCliInfo(); };
-  $("#cli-nuevo").onclick = () => formCliente();
   $("#busca").oninput = e => { S.busca = e.target.value; renderLista(); };
   $("#chips").onclick = e => { const c = e.target.dataset.c; if (!c) return; S.cat = c; tabPedido(); };
   renderLista();
   renderCarrito();
   renderCliSel();
-  await cargarClientes();
-  renderCliSel();
 }
 
-async function cargarClientes() {
-  try {
-    const q = esJefe() ? collection(db, "clientes") : query(collection(db, "clientes"), where("creadoPor", "==", S.perfil.uid));
-    const s = await getDocs(q);
-    S.clientes = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  } catch (e) { toast(errAuth(e)); }
+/* Los clientes se sincronizan solos entre el jefe y todos los vendedores */
+async function cargarClientes() {}
+
+function refrescarClientes() {
+  if (S.tab === "pedido") { if (S.clienteSel) renderCliSel(); else renderCliRes(); }
+  if (S.tab === "clientes") renderClientes();
 }
 
 function renderCliSel() {
-  const sel = $("#cli");
-  if (!sel) return;
-  sel.innerHTML = `<option value="">— Elige un cliente —</option>` + S.clientes.map(c => `<option value="${c.id}" ${c.id === S.clienteSel ? "selected" : ""}>${esc(c.nombre)}</option>`).join("");
-  renderCliInfo();
-}
-
-function renderCliInfo() {
-  const el = $("#cli-info");
+  const el = $("#cli-card");
   if (!el) return;
   const c = S.clientes.find(x => x.id === S.clienteSel);
-  if (!c) { el.innerHTML = '<small style="color:var(--gris)">Elige un cliente o crea uno nuevo.</small>'; return; }
-  el.innerHTML = `<small style="display:block;margin-top:6px;color:var(--gris)">${c.telefono ? "📞 " + esc(c.telefono) + "<br>" : ""}${c.direccion ? "📍 " + esc(c.direccion) + "<br>" : ""}${c.lat != null ? "✅ Ubicación guardada" : "Sin ubicación guardada"}</small>
-    <button id="cli-edit" class="ghost" style="margin-top:6px">Editar / guardar ubicación</button>`;
-  $("#cli-edit").onclick = () => formCliente(c.id);
+  if (c) {
+    el.innerHTML = `<h3>Cliente</h3>
+      <b style="font-size:17px">${esc(c.nombre)}</b>
+      <small style="display:block;margin-top:4px;color:var(--gris)">${c.telefono ? "📞 " + esc(c.telefono) + "<br>" : ""}${c.direccion ? "📍 " + esc(c.direccion) + "<br>" : ""}${c.lat != null ? "✅ Ubicación guardada" : "Sin ubicación guardada"}</small>
+      <div class="row" style="margin-top:8px"><button id="cli-cambiar" class="ghost">Cambiar cliente</button><button id="cli-edit" class="ghost">Editar / ubicación</button></div>`;
+    $("#cli-cambiar").onclick = () => { S.clienteSel = ""; S.qcli = ""; renderCliSel(); };
+    $("#cli-edit").onclick = () => formCliente(c.id);
+  } else {
+    el.innerHTML = `<h3>Cliente</h3>
+      <div class="buscador"><span>🔍</span><input id="cq" type="search" placeholder="Buscar cliente por nombre, teléfono o dirección…" value="${esc(S.qcli)}" autocomplete="off"></div>
+      <div id="cres"></div>
+      <button id="cli-nuevo" class="ghost" style="width:100%;margin-top:6px">+ Nuevo cliente</button>`;
+    $("#cq").oninput = e => { S.qcli = e.target.value; renderCliRes(); };
+    $("#cli-nuevo").onclick = () => formCliente();
+    renderCliRes();
+  }
 }
+
+function renderCliRes() {
+  const el = $("#cres");
+  if (!el) return;
+  const q = S.qcli.trim().toLowerCase();
+  const l = S.clientes.filter(c => `${c.nombre} ${c.telefono || ""} ${c.direccion || ""}`.toLowerCase().includes(q));
+  const ver = l.slice(0, 8);
+  el.innerHTML = ver.length
+    ? ver.map(c => `<div class="card prod" data-id="${c.id}" style="padding:10px"><div><b>${esc(c.nombre)}</b><small>${c.telefono ? "📞 " + esc(c.telefono) : ""}${c.direccion ? " · 📍 " + esc(c.direccion) : ""}</small></div></div>`).join("")
+      + (l.length > ver.length ? `<small style="color:var(--gris)">Mostrando ${ver.length} de ${l.length}. Sigue escribiendo para filtrar.</small>` : "")
+    : `<p class="vacio" style="padding:12px">${S.clientes.length ? "No hay clientes con ese dato." : "Aún no hay clientes. Crea el primero."}</p>`;
+  el.onclick = e => { const c = e.target.closest(".prod"); if (c) { S.clienteSel = c.dataset.id; renderCliSel(); } };
+}
+
 
 function formCliente(id) {
   const c = id ? S.clientes.find(x => x.id === id) : { nombre: "", telefono: "", direccion: "", lat: null, lng: null };
@@ -477,11 +507,13 @@ function renderCarrito() {
   el.innerHTML = `<div class="cart">
     <h3>Pedido actual</h3>${filas}
     <div class="total"><span>Total</span><b>${money(total)}</b></div>
+    <label style="display:block;font-size:13px;color:var(--gris);margin-top:8px">📅 Fecha de entrega</label><input id="fent" type="date" min="${hoy()}" value="${S.fentrega}">
     <input id="nota" placeholder="Observaciones (opcional)" value="${esc(S.nota)}">
     <button id="guardar" class="btn">Guardar pedido · ${money(total)}</button>
     <button id="vaciar" class="ghost">Vaciar</button>
   </div>`;
   $("#nota").oninput = e => { S.nota = e.target.value; };
+  $("#fent").onchange = e => { S.fentrega = e.target.value; };
   el.onclick = e => {
     const t = e.target;
     if (t.dataset.m) agregar(t.dataset.m, -1);
@@ -494,6 +526,7 @@ function renderCarrito() {
 async function guardarPedido() {
   const cli = S.clientes.find(c => c.id === S.clienteSel);
   if (!cli) return toast("Elige o crea un cliente primero.");
+  if (!S.fentrega || S.fentrega < hoy()) return toast("Elige una fecha de entrega (hoy o después).");
   const items = [];
   let total = 0;
   for (const id of Object.keys(S.carrito)) {
@@ -513,7 +546,7 @@ async function guardarPedido() {
       lat: cli.lat ?? null, lng: cli.lng ?? null,
       items, total, nota: S.nota.trim(),
       estado: "pendiente", pagado: 0, saldo: 0, pagos: [],
-      dia: hoy(), ts: Date.now()
+      dia: hoy(), mes: mesDe(hoy()), fechaEntrega: S.fentrega, ts: Date.now()
     };
     const ref = doc(collection(db, "pedidos"));
     await runTransaction(db, async tx => {
@@ -526,8 +559,11 @@ async function guardarPedido() {
     });
     S.carrito = {};
     S.nota = "";
+    S.clienteSel = ""; S.qcli = "";
+    S.fentrega = sumaDias(2);
     renderLista();
     renderCarrito();
+    renderCliSel();
     toast("Pedido guardado");
     factura({ id: ref.id, ...data });
   } catch (e) {
@@ -539,6 +575,14 @@ async function guardarPedido() {
 /* ---------------------------- FACTURA ---------------------------- */
 const EMPRESA = { razon: "Distribuidora Emunáh SAS", dir: "Manzana G Casa 28", barrio: "Barrio Arcamonika", tel: "300-5606030" };
 const fd = ts => new Date(ts).toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+/* Productos que el cliente devolvió al recibir el pedido */
+const devolucionesDe = p => {
+  if (p.estado !== "entregado" || !p.itemsEntregados) return [];
+  const ent = {};
+  p.itemsEntregados.forEach(i => { ent[i.id] = i.cantidad; });
+  return p.items.map(i => ({ ...i, cantidad: i.cantidad - (ent[i.id] || 0) })).filter(i => i.cantidad > 0);
+};
 
 function descargarBlob(blob, nombre) {
   const a = document.createElement("a");
@@ -553,10 +597,13 @@ function descargarBlob(blob, nombre) {
 /* Dibuja la factura como imagen (PNG), de la altura que necesite el pedido */
 function facturaCanvas(p) {
   const W = 800, PAD = 40;
-  const VERDE = "#2e7d32", MORADO = "#6a1b9a", NARANJA = "#ef6c00", GRIS = "#6b7280", TEXTO = "#1f2937", BORDE = "#e5e7eb";
+  const VERDE = "#2e7d32", MORADO = "#6a1b9a", NARANJA = "#ef6c00", GRIS = "#6b7280", TEXTO = "#1f2937", BORDE = "#e5e7eb", ROJO = "#c62828";
   const F = (px, w = 400) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
-  const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
   const pend = p.estado === "pendiente", ent = p.estado === "entregado";
+  const items = itemsFinales(p);
+  const devs = devolucionesDe(p);
+  const totalFinal = totalEntregado(p);
+  const unidades = items.reduce((t, i) => t + i.cantidad, 0);
 
   const cortar = (ctx, t, maxW, font) => {
     ctx.font = font;
@@ -615,29 +662,25 @@ function facturaCanvas(p) {
     T(ctx, "Fecha: " + fd(p.ts), W - PAD, 80, F(15), "rgba(255,255,255,0.9)", "right");
     T(ctx, `${EMPRESA.dir} · ${EMPRESA.barrio} · Tel. ${EMPRESA.tel}`, W / 2, 142, F(14), GRIS, "center");
 
-    /* Cliente y vendedor */
+    /* Cliente (arriba, bien visible) y fecha de entrega */
     let y = 176;
-    const bw = (W - 2 * PAD - 16) / 2;
-    const nomC = envolver(ctx, p.cliente, bw - 28, 2, F(20, 800));
-    const extC = [...(p.direccion ? envolver(ctx, p.direccion, bw - 28, 2, F(15)) : []), ...(p.telefono ? ["Tel: " + p.telefono] : [])];
-    const nomV = envolver(ctx, p.vendedor, bw - 28, 2, F(20, 800));
-    const extV = p.vendedorTel ? ["Tel: " + p.vendedorTel] : [];
-    const bh = Math.max(30 + nomC.length * 26 + extC.length * 21 + 14, 30 + nomV.length * 26 + extV.length * 21 + 14, 84);
-    const caja = (x, etiqueta, nombre, extras) => {
-      ctx.fillStyle = "#f7f7f4";
-      rr(ctx, x, y, bw, bh, 12);
-      ctx.fill();
-      ctx.strokeStyle = BORDE;
-      ctx.lineWidth = 1;
-      rr(ctx, x, y, bw, bh, 12);
-      ctx.stroke();
-      T(ctx, etiqueta, x + 14, y + 12, F(12, 700), GRIS);
-      let yy = y + 30;
-      nombre.forEach(l => { T(ctx, l, x + 14, yy, F(20, 800), TEXTO); yy += 26; });
-      extras.forEach(l => { T(ctx, l, x + 14, yy, F(15), TEXTO); yy += 21; });
-    };
-    caja(PAD, "CLIENTE", nomC, extC);
-    caja(PAD + bw + 16, "VENDEDOR", nomV, extV);
+    const nomC = envolver(ctx, p.cliente, 450, 2, F(24, 800));
+    const extC = [...(p.direccion ? envolver(ctx, p.direccion, 450, 2, F(15)) : []), ...(p.telefono ? ["Tel: " + p.telefono] : [])];
+    const bh = Math.max(34 + nomC.length * 30 + extC.length * 21 + 14, 96);
+    ctx.fillStyle = "#f7f7f4";
+    rr(ctx, PAD, y, W - 2 * PAD, bh, 14);
+    ctx.fill();
+    ctx.strokeStyle = BORDE;
+    ctx.lineWidth = 1;
+    rr(ctx, PAD, y, W - 2 * PAD, bh, 14);
+    ctx.stroke();
+    T(ctx, "CLIENTE", PAD + 18, y + 14, F(12, 700), GRIS);
+    let yy = y + 34;
+    nomC.forEach(l => { T(ctx, l, PAD + 18, yy, F(24, 800), TEXTO); yy += 30; });
+    extC.forEach(l => { T(ctx, l, PAD + 18, yy, F(15), TEXTO); yy += 21; });
+    T(ctx, "FECHA DE ENTREGA", W - PAD - 18, y + 14, F(12, 700), GRIS, "right");
+    T(ctx, p.fechaEntrega ? fdd(p.fechaEntrega) : "Por definir", W - PAD - 18, y + 34, F(22, 800), MORADO, "right");
+    if (ent && p.diaEntrega) T(ctx, "Entregado el " + fdd(p.diaEntrega), W - PAD - 18, y + 66, F(14, 700), VERDE, "right");
     y += bh + 18;
 
     /* Estado con casillas */
@@ -666,7 +709,7 @@ function facturaCanvas(p) {
     };
     casilla(PAD + 90, pend, "Pendiente de entrega");
     casilla(PAD + 390, ent, "Entregado");
-    if (p.estado === "cancelado") T(ctx, "CANCELADO", W - PAD, y + 3, F(16, 800), "#c62828", "right");
+    if (p.estado === "cancelado") T(ctx, "CANCELADO", W - PAD, y + 3, F(16, 800), ROJO, "right");
     y += 24 + 22;
 
     /* Tabla de productos */
@@ -678,7 +721,7 @@ function facturaCanvas(p) {
     T(ctx, "PRECIO", 585, y + 11, F(12, 700), MORADO, "right");
     T(ctx, "VALOR TOTAL", W - PAD - 14, y + 11, F(12, 700), MORADO, "right");
     y += 34;
-    p.items.forEach((i, k) => {
+    items.forEach((i, k) => {
       const lin = envolver(ctx, i.nombre, 340, 2, F(16));
       const h = lin.length * 21 + 18;
       if (k % 2) { ctx.fillStyle = "#faf7fb"; ctx.fillRect(PAD, y, W - 2 * PAD, h); }
@@ -691,15 +734,35 @@ function facturaCanvas(p) {
       y += h;
     });
 
+    /* Devoluciones */
+    if (devs.length) {
+      y += 16;
+      T(ctx, "DEVOLUCIONES", PAD + 14, y, F(12, 700), ROJO);
+      y += 20;
+      devs.forEach(d => {
+        T(ctx, `−${d.cantidad}× ${cortar(ctx, d.nombre, 480, F(14))}`, PAD + 14, y, F(14), ROJO);
+        T(ctx, "−" + money(d.cantidad * d.precio), W - PAD - 14, y, F(14, 700), ROJO, "right");
+        y += 22;
+      });
+    }
+
     /* Totales */
-    y += 22;
-    T(ctx, `${p.items.length} producto(s) · ${unidades} unidad(es)`, PAD, y + 24, F(15), GRIS);
+    y += 18;
+    T(ctx, `${items.length} producto(s) · ${unidades} unidad(es)`, PAD, y + (p.devuelto > 0 ? 40 : 24), F(15), GRIS);
     const bx = W - PAD - 320;
+    if (p.devuelto > 0) {
+      T(ctx, "Total del pedido (vendido)", bx + 18, y, F(14), GRIS);
+      T(ctx, money(p.total), bx + 302, y, F(14, 700), TEXTO, "right");
+      y += 22;
+      T(ctx, "Devolución", bx + 18, y, F(14), GRIS);
+      T(ctx, "−" + money(p.devuelto), bx + 302, y, F(14, 700), ROJO, "right");
+      y += 26;
+    }
     ctx.fillStyle = "#fff3e0";
     rr(ctx, bx, y, 320, 66, 14);
     ctx.fill();
-    T(ctx, "TOTAL", bx + 18, y + 14, F(13, 700), NARANJA);
-    T(ctx, money(p.total), bx + 302, y + 16, F(32, 800), NARANJA, "right");
+    T(ctx, p.devuelto > 0 ? "TOTAL ENTREGADO" : "TOTAL", bx + 18, y + 14, F(12, 700), NARANJA);
+    T(ctx, money(totalFinal), bx + 302, y + 16, F(32, 800), NARANJA, "right");
     y += 66;
     if (ent) {
       y += 14;
@@ -717,13 +780,21 @@ function facturaCanvas(p) {
       envolver(ctx, p.nota, W - 2 * PAD, 3, F(15)).forEach(l => { T(ctx, l, PAD, y, F(15), TEXTO); y += 21; });
     }
 
-    /* Pie */
+    /* Pie: vendedor al final de la factura */
     y += 26;
     ctx.fillStyle = BORDE;
     ctx.fillRect(PAD, y, W - 2 * PAD, 1);
-    T(ctx, "¡Gracias por tu compra!", W / 2, y + 20, F(20, 800), MORADO, "center");
-    T(ctx, EMPRESA.razon, W / 2, y + 52, F(13), GRIS, "center");
-    y += 86;
+    y += 16;
+    ctx.fillStyle = "#f7f7f4";
+    rr(ctx, PAD, y, W - 2 * PAD, 64, 12);
+    ctx.fill();
+    T(ctx, "VENDEDOR", PAD + 18, y + 10, F(12, 700), GRIS);
+    T(ctx, cortar(ctx, p.vendedor, 430, F(20, 800)), PAD + 18, y + 30, F(20, 800), TEXTO);
+    if (p.vendedorTel) T(ctx, "Tel: " + p.vendedorTel, W - PAD - 18, y + 33, F(16, 700), MORADO, "right");
+    y += 64 + 22;
+    T(ctx, "¡Gracias por tu compra!", W / 2, y, F(20, 800), MORADO, "center");
+    T(ctx, EMPRESA.razon, W / 2, y + 30, F(13), GRIS, "center");
+    y += 66;
     ctx.fillStyle = g;
     ctx.fillRect(0, y, W, 8);
     return y + 8;
@@ -759,7 +830,7 @@ async function compartirFactura(p) {
     const file = new File([blob], nombre, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: `Factura ${NEGOCIO}`, text: `Factura ${cod(p)} · ${p.cliente} · ${money(p.total)}` });
+        await navigator.share({ files: [file], title: `Factura ${NEGOCIO}`, text: `Factura ${cod(p)} · ${p.cliente} · ${money(totalEntregado(p))}` });
         return;
       } catch (e) { if (e && e.name === "AbortError") return; }
     }
@@ -769,7 +840,9 @@ async function compartirFactura(p) {
 }
 
 function factura(p) {
-  const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
+  const items = itemsFinales(p);
+  const devs = devolucionesDe(p);
+  const unidades = items.reduce((t, i) => t + i.cantidad, 0);
   const pend = p.estado === "pendiente", ent = p.estado === "entregado";
   const w = modal(`
     <div class="factura">
@@ -779,9 +852,16 @@ function factura(p) {
         <div class="fh2"><small>FACTURA</small><b>No. ${esc(cod(p))}</b><span>Fecha: ${fd(p.ts)}</span></div>
       </div>
       <div class="femp">${EMPRESA.dir} · ${EMPRESA.barrio} · Tel. ${EMPRESA.tel}</div>
-      <div class="fgrid">
-        <div class="fbox"><small>CLIENTE</small><b>${esc(p.cliente)}</b>${p.direccion ? `<span>${esc(p.direccion)}</span>` : ""}${p.telefono ? `<span>Tel: ${esc(p.telefono)}</span>` : ""}</div>
-        <div class="fbox"><small>VENDEDOR</small><b>${esc(p.vendedor)}</b>${p.vendedorTel ? `<span>Tel: ${esc(p.vendedorTel)}</span>` : ""}</div>
+      <div class="fcliente">
+        <div class="fc1">
+          <small>CLIENTE</small><b>${esc(p.cliente)}</b>
+          ${p.direccion ? `<span>${esc(p.direccion)}</span>` : ""}
+          ${p.telefono ? `<span>Tel: ${esc(p.telefono)}</span>` : ""}
+        </div>
+        <div class="fc2">
+          <small>FECHA DE ENTREGA</small><b>${p.fechaEntrega ? fdd(p.fechaEntrega) : "Por definir"}</b>
+          ${ent && p.diaEntrega ? `<span style="color:var(--verde);font-weight:700">Entregado el ${fdd(p.diaEntrega)}</span>` : ""}
+        </div>
       </div>
       <div class="fest">
         <small>ESTADO</small>
@@ -791,14 +871,19 @@ function factura(p) {
       </div>
       <table class="ft">
         <thead><tr><th>Item</th><th class="c">Cant.</th><th class="n">Precio</th><th class="n">Valor total</th></tr></thead>
-        <tbody>${p.items.map(i => `<tr><td>${esc(i.nombre)}</td><td class="c"><b>${i.cantidad}</b></td><td class="n">${money(i.precio)}</td><td class="n"><b>${money(i.cantidad * i.precio)}</b></td></tr>`).join("")}</tbody>
+        <tbody>${items.map(i => `<tr><td>${esc(i.nombre)}</td><td class="c"><b>${i.cantidad}</b></td><td class="n">${money(i.precio)}</td><td class="n"><b>${money(i.cantidad * i.precio)}</b></td></tr>`).join("")}</tbody>
       </table>
+      ${devs.length ? `<div class="fdev"><small>DEVOLUCIONES</small>${devs.map(d => `<div class="lin" style="color:#c62828"><span>−${d.cantidad}× ${esc(d.nombre)}</span><b>−${money(d.cantidad * d.precio)}</b></div>`).join("")}</div>` : ""}
       <div class="ftot">
-        <span>${p.items.length} producto(s) · ${unidades} unidad(es)</span>
-        <div class="ftb"><small>TOTAL</small><b>${money(p.total)}</b></div>
+        <span>${items.length} producto(s) · ${unidades} unidad(es)</span>
+        <div class="ftb">
+          ${p.devuelto > 0 ? `<div class="lin" style="border:0;padding:0;color:var(--gris);font-size:12px"><span>Total del pedido (vendido)</span><span>${money(p.total)}</span></div><div class="lin" style="border:0;padding:0 0 6px;color:#c62828;font-size:12px"><span>Devolución</span><span>−${money(p.devuelto)}</span></div>` : ""}
+          <small>${p.devuelto > 0 ? "TOTAL ENTREGADO" : "TOTAL"}</small><b>${money(totalEntregado(p))}</b>
+        </div>
       </div>
       ${ent ? `<div class="lin"><span>Pagado</span><b style="color:var(--verde)">${money(p.pagado)}</b></div><div class="lin"><span>Saldo pendiente</span><b style="color:${p.saldo > 0 ? "var(--naranja)" : "var(--verde)"}">${money(p.saldo)}</b></div>` : ""}
       ${p.nota ? `<div style="margin-top:10px"><small style="color:var(--gris);font-weight:700">OBSERVACIONES</small><div>${esc(p.nota)}</div></div>` : ""}
+      <div class="fvend"><div><small>VENDEDOR</small><b>${esc(p.vendedor)}</b></div>${p.vendedorTel ? `<span>Tel: ${esc(p.vendedorTel)}</span>` : ""}</div>
       <div class="fpie">¡Gracias por tu compra!<small>${EMPRESA.razon}</small></div>
     </div>
     <div class="noprint acciones">
@@ -816,7 +901,7 @@ function factura(p) {
     } catch (e) { toast("No se pudo crear la imagen: " + e.message); }
   };
   if (p.telefono) w.querySelector("#f-wa").onclick = () => {
-    const txt = `*${NEGOCIO}* — Factura ${cod(p)}\nCliente: ${p.cliente}\n${p.items.length} producto(s) · ${unidades} unidad(es)\n*Total: ${money(p.total)}*\n\n¡Gracias por tu compra!`;
+    const txt = `*${NEGOCIO}* — Factura ${cod(p)}\nCliente: ${p.cliente}\n${items.length} producto(s) · ${unidades} unidad(es)\n*Total: ${money(totalEntregado(p))}*${p.fechaEntrega ? `\nEntrega: ${fdd(p.fechaEntrega)}` : ""}\n\n¡Gracias por tu compra!`;
     const tel = (p.telefono || "").replace(/\D/g, "");
     const num = tel.length === 10 ? "57" + tel : tel;
     window.open(`https://wa.me/${num}?text=${encodeURIComponent(txt)}`, "_blank");
@@ -824,12 +909,14 @@ function factura(p) {
 }
 
 /* ---------------------------- ENTREGAS / MIS PEDIDOS ---------------------------- */
+const diaEntregaDe = p => p.fechaEntrega || p.dia || "";
+
 function tabEntregas() {
   $("#main").innerHTML = `
     <div class="row"><b style="flex:1">${esJefe() ? "Pedidos por entregar" : "Mis pedidos pendientes"}</b><button id="cons" class="ghost">Consolidado</button><button id="act" class="ghost">Actualizar</button></div>
     <div id="entlista"><p class="vacio">Cargando…</p></div>`;
   $("#act").onclick = cargarEntregas;
-  $("#cons").onclick = modalConsolidado;
+  $("#cons").onclick = () => modalConsolidado();
   cargarEntregas();
 }
 
@@ -837,7 +924,7 @@ function tarjetaPedido(p) {
   const m = mapa(p);
   return `<div class="card venta">
     <div class="lin" style="border:0;padding:0"><b>${esc(p.cliente)}</b><b style="color:var(--verde)">${money(p.total)}</b></div>
-    <small>${fh(p.ts)} · #${cod(p)}${esJefe() ? " · " + esc(p.vendedor) : ""}</small>
+    <small>#${cod(p)} · pedido ${fh(p.ts)}${esJefe() ? " · " + esc(p.vendedor) : ""}</small>
     <small>${p.items.map(i => `${i.cantidad}× ${esc(i.nombre)}`).join(", ")}</small>
     ${p.direccion ? `<small>📍 ${esc(p.direccion)}</small>` : ""}
     ${p.nota ? `<small>📝 ${esc(p.nota)}</small>` : ""}
@@ -845,7 +932,7 @@ function tarjetaPedido(p) {
       <button class="ghost" data-ped="${p.id}" data-act="ver">Factura</button>
       ${m ? `<a class="ghost" href="${m}" target="_blank" rel="noopener">Mapa</a>` : ""}
       ${p.telefono ? `<a class="ghost" href="tel:${esc(p.telefono)}">Llamar</a>` : ""}
-      ${esJefe() ? `<button class="btn chico" data-ped="${p.id}" data-act="entregar">Entregar y cobrar</button><button class="ghost" style="color:#c62828" data-ped="${p.id}" data-act="cancelar">Cancelar</button>` : ""}
+      ${esJefe() ? `<button class="btn chico" data-ped="${p.id}" data-act="entregar">Entregar y cobrar</button><button class="ghost" data-ped="${p.id}" data-act="fecha">📅 Fecha</button><button class="ghost" style="color:#c62828" data-ped="${p.id}" data-act="cancelar">Cancelar</button>` : ""}
     </div>
   </div>`;
 }
@@ -857,8 +944,18 @@ async function cargarEntregas() {
     const cs = [where("estado", "==", "pendiente")];
     if (!esJefe()) cs.push(where("uid", "==", S.perfil.uid));
     const s = await getDocs(query(collection(db, "pedidos"), ...cs));
-    S.pend = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.ts - b.ts);
-    el.innerHTML = S.pend.length ? S.pend.map(tarjetaPedido).join("") : '<p class="vacio">No hay pedidos pendientes.</p>';
+    S.pend = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => diaEntregaDe(a).localeCompare(diaEntregaDe(b)) || a.ts - b.ts);
+    let html = "", ultimo = null;
+    S.pend.forEach(p => {
+      const f = diaEntregaDe(p);
+      if (f !== ultimo) {
+        ultimo = f;
+        const grupo = S.pend.filter(x => diaEntregaDe(x) === f);
+        html += `<h3 style="margin-top:14px">📅 ${esc(etiquetaDia(f))}${f && f < hoy() ? ' <span class="pill off">Atrasado</span>' : ""} <small style="color:var(--gris);font-weight:400">· ${grupo.length} pedido(s) · ${money(sum(grupo))}</small></h3>`;
+      }
+      html += tarjetaPedido(p);
+    });
+    el.innerHTML = html || '<p class="vacio">No hay pedidos pendientes.</p>';
     el.onclick = e => {
       const b = e.target.closest("button[data-ped]");
       if (!b) return;
@@ -866,6 +963,7 @@ async function cargarEntregas() {
       if (!p) return;
       if (b.dataset.act === "ver") factura(p);
       else if (b.dataset.act === "entregar") modalEntrega(p);
+      else if (b.dataset.act === "fecha") modalFecha(p);
       else if (b.dataset.act === "cancelar") cancelarPedido(p);
     };
   } catch (e) {
@@ -873,9 +971,32 @@ async function cargarEntregas() {
   }
 }
 
-function modalConsolidado() {
-  const lista = S.pend;
-  if (!lista.length) return toast("No hay pedidos pendientes para consolidar.");
+function modalFecha(p) {
+  const m = modal(`
+    <h3>Fecha de entrega</h3>
+    <small style="color:var(--gris)">${esc(p.cliente)} · #${cod(p)}</small>
+    <input id="fe-d" type="date" value="${diaEntregaDe(p)}">
+    <button id="fe-ok" class="btn">Guardar fecha</button>
+    <button id="fe-x" class="ghost" style="width:100%">Cancelar</button>`);
+  m.querySelector("#fe-x").onclick = () => m.remove();
+  m.querySelector("#fe-ok").onclick = async () => {
+    const f = m.querySelector("#fe-d").value;
+    if (!f) return toast("Elige una fecha.");
+    try {
+      await updateDoc(doc(db, "pedidos", p.id), { fechaEntrega: f });
+      m.remove();
+      toast("Fecha de entrega guardada");
+      cargarEntregas();
+    } catch (e) { toast(errAuth(e)); }
+  };
+}
+
+function modalConsolidado(filtro = "todas") {
+  const todas = S.pend;
+  if (!todas.length) return toast("No hay pedidos pendientes para consolidar.");
+  const fechas = [...new Set(todas.map(diaEntregaDe))].sort();
+  if (filtro !== "todas" && !fechas.includes(filtro)) filtro = "todas";
+  const lista = filtro === "todas" ? todas : todas.filter(p => diaEntregaDe(p) === filtro);
   const acc = {};
   lista.forEach(p => p.items.forEach(i => {
     const a = acc[i.id] = acc[i.id] || { id: i.id, nombre: i.nombre, cantidad: 0, valor: 0 };
@@ -886,26 +1007,28 @@ function modalConsolidado() {
   const unidades = filas.reduce((t, x) => t + x.cantidad, 0);
   const valor = sum(lista);
   const nClientes = new Set(lista.map(p => p.clienteId || p.cliente)).size;
+  const cuando = filtro === "todas" ? "Todas las fechas" : etiquetaDia(filtro) + (etiquetaDia(filtro) !== fdd(filtro) ? " (" + fdd(filtro) + ")" : "");
   const falta = f => { const pr = S.productos.find(x => x.id === f.id); return pr ? Math.max(0, f.cantidad - (pr.stock || 0)) : 0; };
   const m = modal(`
+    <div class="noprint"><select id="co-f"><option value="todas">Todas las fechas</option>${fechas.map(f => `<option value="${f}" ${f === filtro ? "selected" : ""}>${esc(etiquetaDia(f))}${etiquetaDia(f) !== fdd(f) ? " · " + fdd(f) : ""}</option>`).join("")}</select></div>
     <div class="factura">
-      <h3 style="text-align:center;margin:0">Consolidado de entregas</h3>
-      <small style="display:block;text-align:center;color:var(--gris)">${NEGOCIO} · ${fh(Date.now())}</small>
-      <div class="kpis">${kpi("Pedidos", lista.length)}${kpi("Clientes", nClientes)}${kpi("Unidades", unidades)}${kpi("Valor total", money(valor))}</div>
+      <h3 style="text-align:center;margin:6px 0 0">Consolidado de entregas</h3>
+      <small style="display:block;text-align:center;color:var(--gris)">${NEGOCIO} · Entrega: ${esc(cuando)}</small>
+      <div class="kpis">${kpi("Pedidos", lista.length)}${kpi("Clientes", nClientes)}${kpi("Unidades", unidades)}${kpi("Valor vendido", money(valor))}</div>
       <h3>Productos a llevar</h3>
       ${filas.map(f => `<div class="lin"><span><b>${f.cantidad}×</b> ${esc(f.nombre)}${falta(f) ? `<span class="pill off">Faltan ${falta(f)}</span>` : ""}</span><span>${money(f.valor)}</span></div>`).join("")}
       <h3 style="margin-top:14px">Pedidos incluidos</h3>
       ${lista.map(p => `<div class="lin"><span>${esc(p.cliente)}${p.direccion ? `<small style="display:block;color:var(--gris)">📍 ${esc(p.direccion)}</small>` : ""}</span><span>${money(p.total)}</span></div>`).join("")}
     </div>
-    <div class="noprint" style="margin-top:12px">
+    <div class="noprint acciones">
       <button id="co-wa" class="btn">Compartir por WhatsApp</button>
-      <button id="co-pr" class="ghost" style="width:100%;margin-bottom:6px">Imprimir / guardar PDF</button>
-      <button id="co-x" class="ghost" style="width:100%">Cerrar</button>
+      <div class="row"><button id="co-pr" class="ghost" style="flex:1">🖨️ Imprimir</button><button id="co-x" class="ghost" style="flex:1">Cerrar</button></div>
     </div>`);
+  m.querySelector("#co-f").onchange = e => { m.remove(); modalConsolidado(e.target.value); };
   m.querySelector("#co-x").onclick = () => m.remove();
   m.querySelector("#co-pr").onclick = () => window.print();
   m.querySelector("#co-wa").onclick = () => {
-    const txt = `*${NEGOCIO}* — Consolidado de entregas\n${fh(Date.now())}\n${lista.length} pedidos · ${nClientes} clientes\n\n*Productos a llevar*\n${filas.map(f => `• ${f.cantidad}× ${f.nombre}`).join("\n")}\n\n*Total: ${unidades} unidades · ${money(valor)}*`;
+    const txt = `*${NEGOCIO}* — Consolidado de entregas\nEntrega: ${cuando}\n${lista.length} pedidos · ${nClientes} clientes\n\n*Productos a llevar*\n${filas.map(f => `• ${f.cantidad}× ${f.nombre}`).join("\n")}\n\n*Total: ${unidades} unidades · ${money(valor)}*`;
     window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank");
   };
 }
@@ -920,42 +1043,71 @@ async function cancelarPedido(p) {
 }
 
 function modalEntrega(p) {
+  const cant = {};
+  p.items.forEach(i => { cant[i.id] = i.cantidad; });
+  const tot = () => p.items.reduce((t, i) => t + cant[i.id] * i.precio, 0);
   const m = modal(`
     <h3>Entregar a ${esc(p.cliente)}</h3>
-    <div class="total"><span>Total del pedido</span><b>${money(p.total)}</b></div>
+    <small style="color:var(--gris)">Si el cliente devuelve algo, baja la cantidad. El valor vendido por el vendedor no cambia: solo cambia lo que se entrega y se cobra.</small>
+    <div id="en-items" style="margin-top:8px"></div>
+    <div id="en-res"></div>
     <select id="en-tipo">
       <option value="completo">Pagó completo</option>
       <option value="parcial">Pagó una parte (el resto queda fiado)</option>
       <option value="fiado">Fiado (no pagó nada)</option>
     </select>
-    <input id="en-monto" type="number" inputmode="numeric" min="1" max="${p.total}" placeholder="¿Cuánto pagó?" style="display:none">
+    <input id="en-monto" type="number" inputmode="numeric" min="1" placeholder="¿Cuánto pagó?" style="display:none">
     <select id="en-metodo">${METODOS.map(x => `<option>${x}</option>`).join("")}</select>
     <button id="en-ok" class="btn">Confirmar entrega</button>
     <button id="en-x" class="ghost" style="width:100%">Cancelar</button>`);
   const tipo = m.querySelector("#en-tipo"), monto = m.querySelector("#en-monto"), metodo = m.querySelector("#en-metodo");
+  const pintar = () => {
+    m.querySelector("#en-items").innerHTML = p.items.map(i => `
+      <div class="fila"><span>${esc(i.nombre)}${cant[i.id] < i.cantidad ? `<span class="pill off">Dev. ${i.cantidad - cant[i.id]}</span>` : ""}</span>
+      <span class="qty"><button data-m="${i.id}">−</button><b>${cant[i.id]}</b><button data-p="${i.id}">+</button></span>
+      <span>${money(cant[i.id] * i.precio)}</span></div>`).join("");
+    const t = tot();
+    m.querySelector("#en-res").innerHTML = `
+      <div class="lin"><span>Total vendido</span><b>${money(p.total)}</b></div>
+      ${p.total - t > 0 ? `<div class="lin"><span>Devolución</span><b style="color:#c62828">−${money(p.total - t)}</b></div>` : ""}
+      <div class="total"><span>Total a cobrar</span><b>${money(t)}</b></div>`;
+  };
+  pintar();
+  m.querySelector("#en-items").onclick = e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const id = b.dataset.m || b.dataset.p;
+    const orig = p.items.find(i => i.id === id).cantidad;
+    cant[id] = Math.max(0, Math.min(orig, cant[id] + (b.dataset.p ? 1 : -1)));
+    pintar();
+  };
   tipo.onchange = () => {
     monto.style.display = tipo.value === "parcial" ? "block" : "none";
     metodo.style.display = tipo.value === "fiado" ? "none" : "block";
   };
   m.querySelector("#en-x").onclick = () => m.remove();
   m.querySelector("#en-ok").onclick = async () => {
-    const pago = tipo.value === "completo" ? p.total : tipo.value === "fiado" ? 0 : Math.round(Number(monto.value) || 0);
-    if (tipo.value === "parcial" && (pago <= 0 || pago >= p.total)) return toast("El pago parcial debe ser mayor que 0 y menor que el total.");
-    const faltan = p.items.filter(i => { const pr = S.productos.find(x => x.id === i.id); return !pr || (pr.stock || 0) < i.cantidad; }).map(i => i.nombre);
+    const totalEnt = tot();
+    if (totalEnt <= 0) return toast("Si el cliente devolvió todo, cancela el pedido en lugar de entregarlo.");
+    const pago = tipo.value === "completo" ? totalEnt : tipo.value === "fiado" ? 0 : Math.round(Number(monto.value) || 0);
+    if (tipo.value === "parcial" && (pago <= 0 || pago >= totalEnt)) return toast("El pago parcial debe ser mayor que 0 y menor que el total a cobrar.");
+    const itemsEnt = p.items.filter(i => cant[i.id] > 0).map(i => ({ id: i.id, nombre: i.nombre, precio: i.precio, cantidad: cant[i.id] }));
+    const faltan = itemsEnt.filter(i => { const pr = S.productos.find(x => x.id === i.id); return !pr || (pr.stock || 0) < i.cantidad; }).map(i => i.nombre);
     if (faltan.length && !confirm("Stock insuficiente de: " + faltan.join(", ") + ". ¿Entregar igual?")) return;
     const btn = m.querySelector("#en-ok");
     btn.disabled = true;
     try {
       const b = writeBatch(db);
-      const ts = Date.now();
+      const ts = Date.now(), dia = hoy();
       const met = metodo.value;
       b.update(doc(db, "pedidos", p.id), {
-        estado: "entregado", pagado: pago, pagoEntrega: pago, saldo: p.total - pago,
+        estado: "entregado", itemsEntregados: itemsEnt, totalEntregado: totalEnt, devuelto: p.total - totalEnt,
+        pagado: pago, pagoEntrega: pago, saldo: totalEnt - pago,
         pagos: pago > 0 ? [{ monto: pago, metodo: met, ts }] : [],
-        entregadoTs: ts, diaEntrega: hoy()
+        entregadoTs: ts, diaEntrega: dia, mesEntrega: mesDe(dia)
       });
-      p.items.forEach(i => { if (S.productos.some(x => x.id === i.id)) b.update(doc(db, "productos", i.id), { stock: increment(-i.cantidad) }); });
-      if (pago > 0) b.set(doc(collection(db, "pagos")), { pedidoId: p.id, clienteId: p.clienteId, cliente: p.cliente, monto: pago, metodo: met, dia: hoy(), ts });
+      itemsEnt.forEach(i => { if (S.productos.some(x => x.id === i.id)) b.update(doc(db, "productos", i.id), { stock: increment(-i.cantidad) }); });
+      if (pago > 0) b.set(doc(collection(db, "pagos")), { pedidoId: p.id, clienteId: p.clienteId, cliente: p.cliente, monto: pago, metodo: met, dia, mes: mesDe(dia), ts });
       await b.commit();
       m.remove();
       toast("Entrega registrada");
@@ -966,6 +1118,7 @@ function modalEntrega(p) {
     }
   };
 }
+
 
 /* ---------------------------- FIADO (solo jefe) ---------------------------- */
 function tabFiado() {
@@ -1033,7 +1186,7 @@ function abonar(g) {
         const ap = Math.min(p.saldo, resto);
         resto -= ap;
         b.update(doc(db, "pedidos", p.id), { pagado: increment(ap), saldo: increment(-ap), pagos: arrayUnion({ monto: ap, metodo: met, ts }) });
-        b.set(doc(collection(db, "pagos")), { pedidoId: p.id, clienteId: g.id || "", cliente: g.cliente, monto: ap, metodo: met, dia, ts });
+        b.set(doc(collection(db, "pagos")), { pedidoId: p.id, clienteId: g.id || "", cliente: g.cliente, monto: ap, metodo: met, dia, mes: mesDe(dia), ts });
       }
       await b.commit();
       m.remove();
@@ -1047,15 +1200,15 @@ function abonar(g) {
 }
 
 /* ---------------------------- CLIENTES (solo jefe) ---------------------------- */
-async function tabClientes() {
+function tabClientes() {
+  const j = esJefe();
   $("#main").innerHTML = `
-    <div class="row"><button id="cn" class="btn" style="flex:1;margin:6px 0">+ Nuevo cliente</button><button id="ci" class="ghost" style="white-space:nowrap">Importar lista</button></div>
-    <input id="cbusca" type="search" placeholder="Buscar cliente…" value="${esc(S.cbusca)}">
-    <div id="clista"><p class="vacio">Cargando…</p></div>`;
+    <div class="row"><button id="cn" class="btn" style="flex:1;margin:6px 0">+ Nuevo cliente</button>${j ? '<button id="ci" class="ghost" style="white-space:nowrap">Importar lista</button>' : ""}</div>
+    <div class="buscador"><span>🔍</span><input id="cbusca" type="search" placeholder="Buscar cliente por nombre, teléfono o dirección…" value="${esc(S.cbusca)}"></div>
+    <div id="clista"></div>`;
   $("#cn").onclick = () => formCliente();
-  $("#ci").onclick = modalImportarClientes;
+  if (j) $("#ci").onclick = modalImportarClientes;
   $("#cbusca").oninput = e => { S.cbusca = e.target.value; renderClientes(); };
-  await cargarClientes();
   renderClientes();
 }
 
@@ -1065,13 +1218,14 @@ function renderClientes() {
   const q = S.cbusca.trim().toLowerCase();
   const l = S.clientes.filter(c => `${c.nombre} ${c.telefono || ""} ${c.direccion || ""}`.toLowerCase().includes(q));
   el.innerHTML = l.length
-    ? `<small style="color:var(--gris)">${S.clientes.length} clientes en total</small>` + l.map(c => `
+    ? `<small style="color:var(--gris)">${l.length === S.clientes.length ? S.clientes.length + " clientes en total" : l.length + " de " + S.clientes.length + " clientes"}</small>` + l.map(c => `
       <div class="card prod" data-id="${c.id}">
         <div><b>${esc(c.nombre)}</b><small>${c.telefono ? "📞 " + esc(c.telefono) : "Sin teléfono"}${c.direccion ? " · 📍 " + esc(c.direccion) : ""}${c.lat != null ? " · ✅ GPS" : ""}</small></div>
       </div>`).join("")
     : `<p class="vacio">${S.clientes.length ? "Sin resultados." : "Aún no hay clientes."}</p>`;
   el.onclick = e => { const c = e.target.closest(".prod"); if (c) formCliente(c.dataset.id); };
 }
+
 
 /*PARSER_CLI_START*/
 function parsearClientes(txt) {
@@ -1279,21 +1433,29 @@ function modalImportar() {
   };
 }
 
-/* ---------------------------- CIERRE DEL DÍA ---------------------------- */
+/* ---------------------------- CIERRE / RESÚMENES (día y mes) ---------------------------- */
 function tabCierre() {
+  const dia = S.modoCierre === "dia";
   $("#main").innerHTML = `
-    <div class="row"><input type="date" id="fecha" value="${S.fecha}"><button id="act" class="ghost">Actualizar</button></div>
+    <div class="chips" id="cm"><button class="chip ${dia ? "on" : ""}" data-m="dia">Día</button><button class="chip ${dia ? "" : "on"}" data-m="mes">Mes</button></div>
+    <div class="row">${dia ? `<input type="date" id="fecha" value="${S.fecha}">` : `<input type="month" id="mes" value="${S.mes}">`}<button id="act" class="ghost">Actualizar</button></div>
+    ${esJefe() ? '<button id="xl" class="btn" style="background:var(--morado)">📥 Descargar Excel</button>' : ""}
     <div id="cierre"><p class="vacio">Cargando…</p></div>`;
-  $("#fecha").onchange = e => { S.fecha = e.target.value || hoy(); cargarCierre(); };
+  $("#cm").onclick = e => { const m = e.target.dataset.m; if (m) { S.modoCierre = m; tabCierre(); } };
+  const f = $("#fecha"), mm = $("#mes");
+  if (f) f.onchange = e => { S.fecha = e.target.value || hoy(); cargarCierre(); };
+  if (mm) mm.onchange = e => { S.mes = e.target.value || mesDe(); cargarCierre(); };
   $("#act").onclick = cargarCierre;
+  if (esJefe()) $("#xl").onclick = modalExcel;
   cargarCierre();
 }
 
 const kpi = (t, v, grande) => `<div class="kpi ${grande ? "grande" : ""}"><small>${t}</small><b>${v}</b></div>`;
 const filaPedido = (p, conVend) => `<div class="card venta" data-ped="${p.id}" style="cursor:pointer">
-  <div class="lin" style="border:0;padding:0"><b>${esc(p.cliente)}${pillEstado(p)}</b><b style="color:var(--verde)">${money(p.total)}</b></div>
-  <small>#${cod(p)} · ${hora(p.ts)}${conVend ? " · " + esc(p.vendedor) : ""}</small>
-  <small>${p.items.map(i => `${i.cantidad}× ${esc(i.nombre)}`).join(", ")}</small>
+  <div class="lin" style="border:0;padding:0"><b>${esc(p.cliente)}${pillEstado(p)}</b><b style="color:var(--verde)">${money(totalEntregado(p))}</b></div>
+  <small>#${cod(p)} · ${fdd(p.dia)} ${hora(p.ts)}${conVend ? " · " + esc(p.vendedor) : ""}${p.fechaEntrega ? " · entrega " + fdd(p.fechaEntrega) : ""}</small>
+  <small>${itemsFinales(p).map(i => `${i.cantidad}× ${esc(i.nombre)}`).join(", ")}</small>
+  ${p.devuelto > 0 ? `<small style="color:#c62828">Devolución −${money(p.devuelto)} (vendido ${money(p.total)})</small>` : ""}
 </div>`;
 const bloquePares = (titulo, pares) => pares.length ? `<div class="card"><h3>${titulo}</h3>${pares.map(([n, t]) => `<div class="lin"><span>${esc(n)}</span><b>${money(t)}</b></div>`).join("")}</div>` : "";
 const agrupar = (arr, clave, valor) => {
@@ -1301,52 +1463,77 @@ const agrupar = (arr, clave, valor) => {
   arr.forEach(x => { m[x[clave]] = (m[x[clave]] || 0) + valor(x); });
   return Object.entries(m).sort((a, b) => b[1] - a[1]);
 };
+const porDia = (arr, clave, valor) => {
+  const m = {};
+  arr.forEach(x => { if (x[clave]) m[x[clave]] = (m[x[clave]] || 0) + valor(x); });
+  return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0])).map(([d, t]) => [fdd(d), t]);
+};
 
 async function cargarCierre() {
   const el = $("#cierre");
   if (!el) return;
-  const f = S.fecha;
+  const dia = S.modoCierre === "dia";
+  const per = (cDia, cMes) => [where(dia ? cDia : cMes, "==", dia ? S.fecha : S.mes)];
   const lee = s => s.docs.map(d => ({ id: d.id, ...d.data() }));
+  const cuando = dia ? "del día" : "del mes";
   try {
     if (!esJefe()) {
-      const s = await getDocs(query(collection(db, "pedidos"), where("dia", "==", f), where("uid", "==", S.perfil.uid)));
+      const s = await getDocs(query(collection(db, "pedidos"), ...per("dia", "mes"), where("uid", "==", S.perfil.uid)));
       const v = lee(s).sort((a, b) => b.ts - a.ts);
       const act = v.filter(x => x.estado !== "cancelado");
+      const ent = act.filter(x => x.estado === "entregado");
+      const pen = act.filter(x => x.estado === "pendiente");
       S.docsCierre = v;
       el.innerHTML = `<div class="kpis">
-        ${kpi("Pedidos tomados", act.length, true)}
-        ${kpi("Valor de los pedidos", money(sum(act)))}
-        ${kpi("Ya entregados", act.filter(x => x.estado === "entregado").length)}
+        ${kpi("Valor vendido " + cuando, money(sum(act)), true)}
+        ${kpi("Pedidos tomados", act.length)}
+        ${kpi("Entregados", ent.length)}
+        ${kpi("Pendientes de entrega", pen.length)}
+        ${kpi("Valor entregado", money(ent.reduce((t, x) => t + totalEntregado(x), 0)))}
+        ${kpi("Devoluciones", money(ent.reduce((t, x) => t + (x.devuelto || 0), 0)))}
       </div>
-      <h3>Mis pedidos del día</h3>
-      ${v.length ? v.map(p => filaPedido(p, false)).join("") : '<p class="vacio">No tomaste pedidos en esta fecha.</p>'}`;
+      ${dia ? "" : bloquePares("Vendido por día", porDia(act, "dia", x => x.total))}
+      <h3>${dia ? "Mis pedidos del día" : "Mis pedidos del mes" + (v.length > 60 ? " (los 60 más recientes)" : "")}</h3>
+      ${v.length ? v.slice(0, 60).map(p => filaPedido(p, false)).join("") : '<p class="vacio">No hay pedidos en este periodo.</p>'}`;
     } else {
-      const [cr, en, pg, de] = await Promise.all([
-        getDocs(query(collection(db, "pedidos"), where("dia", "==", f))),
-        getDocs(query(collection(db, "pedidos"), where("diaEntrega", "==", f))),
-        getDocs(query(collection(db, "pagos"), where("dia", "==", f))),
-        getDocs(query(collection(db, "pedidos"), where("saldo", ">", 0)))
+      const [cr, en, pg, de, pe] = await Promise.all([
+        getDocs(query(collection(db, "pedidos"), ...per("dia", "mes"))),
+        getDocs(query(collection(db, "pedidos"), ...per("diaEntrega", "mesEntrega"))),
+        getDocs(query(collection(db, "pagos"), ...per("dia", "mes"))),
+        getDocs(query(collection(db, "pedidos"), where("saldo", ">", 0))),
+        getDocs(query(collection(db, "pedidos"), where("estado", "==", "pendiente")))
       ]);
       const creados = lee(cr).filter(x => x.estado !== "cancelado").sort((a, b) => b.ts - a.ts);
-      const entregas = lee(en).sort((a, b) => b.entregadoTs - a.entregadoTs);
+      const entregas = lee(en).filter(x => x.estado === "entregado").sort((a, b) => b.entregadoTs - a.entregadoTs);
       const pagos = lee(pg);
       const deudas = lee(de);
+      const pendientes = lee(pe);
       const cobrado = pagos.reduce((t, x) => t + x.monto, 0);
-      const fiadoHoy = entregas.reduce((t, x) => t + (x.total - (x.pagoEntrega || 0)), 0);
+      const valorEnt = entregas.reduce((t, x) => t + totalEntregado(x), 0);
+      const devol = entregas.reduce((t, x) => t + (x.devuelto || 0), 0);
+      const fiadoPer = entregas.reduce((t, x) => t + (totalEntregado(x) - (x.pagoEntrega || 0)), 0);
       S.docsCierre = [...creados, ...entregas];
       el.innerHTML = `<div class="kpis">
-        ${kpi("Dinero cobrado", money(cobrado), true)}
-        ${kpi("Entregado (valor)", money(sum(entregas)))}
+        ${kpi("Dinero cobrado " + cuando, money(cobrado), true)}
+        ${kpi("Vendido por vendedores", money(sum(creados)))}
+        ${kpi("Entregado (valor)", money(valorEnt))}
+        ${kpi("Devoluciones", money(devol))}
         ${kpi("Entregas hechas", entregas.length)}
-        ${kpi("Fiado de este día", money(fiadoHoy))}
+        ${kpi("Fiado " + cuando, money(fiadoPer))}
+        ${kpi("Pendiente de entrega", pendientes.length + " · " + money(sum(pendientes)))}
         ${kpi("Fiado total por cobrar", money(deudas.reduce((t, x) => t + x.saldo, 0)))}
       </div>
       ${bloquePares("Cobrado por método", agrupar(pagos, "metodo", x => x.monto))}
-      ${bloquePares("Pedidos tomados por vendedor", agrupar(creados, "vendedor", x => x.total))}
-      <h3>Entregas del día</h3>
-      ${entregas.length ? entregas.map(p => filaPedido(p, true)).join("") : '<p class="vacio">No hubo entregas.</p>'}
-      <h3>Pedidos tomados ese día</h3>
-      ${creados.length ? creados.map(p => filaPedido(p, true)).join("") : '<p class="vacio">No se tomaron pedidos.</p>'}`;
+      ${bloquePares("Vendido por vendedor", agrupar(creados, "vendedor", x => x.total))}
+      ${bloquePares("Entregado por vendedor", agrupar(entregas, "vendedor", x => totalEntregado(x)))}
+      ${dia ? `
+        <h3>Entregas del día</h3>
+        ${entregas.length ? entregas.map(p => filaPedido(p, true)).join("") : '<p class="vacio">No hubo entregas.</p>'}
+        <h3>Pedidos tomados ese día</h3>
+        ${creados.length ? creados.map(p => filaPedido(p, true)).join("") : '<p class="vacio">No se tomaron pedidos.</p>'}`
+      : `${bloquePares("Vendido por día", porDia(creados, "dia", x => x.total))}
+        ${bloquePares("Entregado por día", porDia(entregas, "diaEntrega", x => totalEntregado(x)))}
+        ${bloquePares("Cobrado por día", porDia(pagos, "dia", x => x.monto))}`}`;
     }
     el.onclick = e => {
       const c = e.target.closest("[data-ped]");
@@ -1357,6 +1544,157 @@ async function cargarCierre() {
   } catch (e) {
     el.innerHTML = `<p class="vacio">${esc(errAuth(e))}</p>`;
   }
+}
+
+/* ---------------------------- EXCEL (solo jefe) ---------------------------- */
+async function cargarXLSX() {
+  if (window.XLSX) return window.XLSX;
+  await new Promise((ok, mal) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = ok;
+    s.onerror = () => mal(new Error("No se pudo cargar el generador de Excel. Revisa tu internet."));
+    document.head.appendChild(s);
+  });
+  return window.XLSX;
+}
+
+function modalExcel() {
+  const m = modal(`
+    <h3>Descargar Excel</h3>
+    <small style="color:var(--gris)">Un solo archivo con varias hojas: resumen y por vendedor, pedidos, detalle de productos (vendido, entregado y devuelto), pagos, fiado, inventario, clientes y equipo.</small>
+    <label class="chk" style="margin:12px 0 4px"><input type="checkbox" id="xl-todo" style="width:auto;margin:0"> Todo el historial</label>
+    <div class="row"><input type="date" id="xl-d" value="${mesDe()}-01"><input type="date" id="xl-h" value="${hoy()}"></div>
+    <small style="color:var(--gris)">Los pedidos se filtran por la fecha en que se tomaron. El fiado, el inventario y los clientes siempre salen completos.</small>
+    <button id="xl-ok" class="btn">Descargar</button>
+    <button id="xl-x" class="ghost" style="width:100%">Cancelar</button>`);
+  const todo = m.querySelector("#xl-todo"), d = m.querySelector("#xl-d"), h = m.querySelector("#xl-h");
+  todo.onchange = () => { d.disabled = h.disabled = todo.checked; };
+  m.querySelector("#xl-x").onclick = () => m.remove();
+  m.querySelector("#xl-ok").onclick = async () => {
+    const btn = m.querySelector("#xl-ok");
+    if (!todo.checked && (!d.value || !h.value || d.value > h.value)) return toast("Revisa las fechas: la inicial debe ser menor o igual a la final.");
+    btn.disabled = true;
+    btn.textContent = "Preparando…";
+    try {
+      await exportarExcel(todo.checked ? "" : d.value, todo.checked ? "" : h.value);
+      m.remove();
+      toast("Excel descargado");
+    } catch (e) {
+      toast(errAuth(e));
+      btn.disabled = false;
+      btn.textContent = "Descargar";
+    }
+  };
+}
+
+async function exportarExcel(desde, hasta) {
+  const XLSX = await cargarXLSX();
+  const [sp, sg, su] = await Promise.all([getDocs(collection(db, "pedidos")), getDocs(collection(db, "pagos")), getDocs(collection(db, "users"))]);
+  const dentro = d => (!desde || d >= desde) && (!hasta || d <= hasta);
+  const todosPed = sp.docs.map(d => ({ id: d.id, ...d.data() }));
+  const peds = todosPed.filter(p => dentro(p.dia || "")).sort((a, b) => a.ts - b.ts);
+  const pagos = sg.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => dentro(x.dia || "")).sort((a, b) => a.ts - b.ts);
+  const num = new Map(todosPed.map(p => [p.id, cod(p)]));
+  const estadoTxt = p => p.estado === "pendiente" ? "Pendiente de entrega" : p.estado === "entregado" ? "Entregado" : "Cancelado";
+  const entVal = p => p.estado === "entregado" ? totalEntregado(p) : 0;
+  const act = peds.filter(p => p.estado !== "cancelado");
+  const ent = act.filter(p => p.estado === "entregado");
+  const pen = act.filter(p => p.estado === "pendiente");
+
+  const hoja = (aoa, anchos, moneda = []) => {
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = anchos.map(w => ({ wch: w }));
+    if (ws["!ref"]) {
+      const rng = XLSX.utils.decode_range(ws["!ref"]);
+      for (let R = 1; R <= rng.e.r; R++) for (const C of moneda) {
+        const c = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (c && typeof c.v === "number") c.z = '"$"#,##0';
+      }
+    }
+    return ws;
+  };
+
+  /* Resumen general + por vendedor */
+  const resumen = [
+    ["RESUMEN " + NEGOCIO.toUpperCase()],
+    ["Periodo (pedidos tomados)", desde ? `${fdd(desde)} a ${fdd(hasta)}` : "Todo el historial"],
+    ["Generado", new Date().toLocaleString("es-CO")],
+    [],
+    ["Concepto", "Valor"]
+  ];
+  const filasDinero = [];
+  const linea = (k, v, esDinero) => { resumen.push([k, v]); if (esDinero) filasDinero.push(resumen.length - 1); };
+  linea("Pedidos tomados (sin cancelados)", act.length);
+  linea("Valor vendido por los vendedores", sum(act), true);
+  linea("Pedidos entregados", ent.length);
+  linea("Valor entregado", ent.reduce((t, p) => t + totalEntregado(p), 0), true);
+  linea("Devoluciones (valor)", ent.reduce((t, p) => t + (p.devuelto || 0), 0), true);
+  linea("Pedidos pendientes de entrega", pen.length);
+  linea("Valor pendiente de entrega", sum(pen), true);
+  linea("Pedidos cancelados", peds.filter(p => p.estado === "cancelado").length);
+  linea("Dinero cobrado en el periodo", pagos.reduce((t, x) => t + x.monto, 0), true);
+  linea("Fiado por cobrar de estos pedidos", ent.reduce((t, p) => t + (p.saldo || 0), 0), true);
+  resumen.push([], ["POR VENDEDOR"], ["Vendedor", "Pedidos", "Valor vendido", "Entregados", "Valor entregado", "Devoluciones", "Pendientes", "Fiado por cobrar"]);
+  const vend = [...new Set(act.map(p => p.vendedor))].sort((a, b) => String(a).localeCompare(String(b), "es"));
+  const filaVend0 = resumen.length;
+  vend.forEach(n => {
+    const a = act.filter(p => p.vendedor === n), e = a.filter(p => p.estado === "entregado");
+    resumen.push([n, a.length, sum(a), e.length, e.reduce((t, p) => t + totalEntregado(p), 0), e.reduce((t, p) => t + (p.devuelto || 0), 0), a.filter(p => p.estado === "pendiente").length, e.reduce((t, p) => t + (p.saldo || 0), 0)]);
+  });
+  const wsRes = hoja(resumen, [38, 18, 18, 14, 18, 16, 12, 18]);
+  filasDinero.forEach(r => { const c = wsRes[XLSX.utils.encode_cell({ r, c: 1 })]; if (c) c.z = '"$"#,##0'; });
+  for (let r = filaVend0; r < resumen.length; r++) for (const c of [2, 4, 5, 7]) { const cell = wsRes[XLSX.utils.encode_cell({ r, c })]; if (cell && typeof cell.v === "number") cell.z = '"$"#,##0'; }
+
+  /* Pedidos */
+  const wsPed = hoja([
+    ["N° factura", "Fecha pedido", "Entrega programada", "Entrega real", "Cliente", "Teléfono", "Dirección", "Vendedor", "Estado", "Valor vendido", "Valor entregado", "Devolución", "Pagado", "Saldo (fiado)", "Observaciones"],
+    ...peds.map(p => [cod(p), fdd(p.dia), fdd(p.fechaEntrega), fdd(p.diaEntrega), p.cliente, p.telefono || "", p.direccion || "", p.vendedor, estadoTxt(p), p.total, entVal(p), p.estado === "entregado" ? (p.devuelto || 0) : 0, p.pagado || 0, p.saldo || 0, p.nota || ""])
+  ], [12, 12, 16, 12, 30, 14, 32, 22, 20, 14, 14, 12, 12, 12, 30], [9, 10, 11, 12, 13]);
+
+  /* Detalle de productos */
+  const det = [["N° factura", "Fecha pedido", "Cliente", "Vendedor", "Estado", "Producto", "Cant. vendida", "Cant. entregada", "Cant. devuelta", "Precio", "Valor vendido", "Valor entregado"]];
+  peds.forEach(p => {
+    const entMap = {};
+    if (p.estado === "entregado") (p.itemsEntregados || p.items).forEach(i => { entMap[i.id] = i.cantidad; });
+    p.items.forEach(i => {
+      const ce = p.estado === "entregado" ? (entMap[i.id] || 0) : 0;
+      det.push([cod(p), fdd(p.dia), p.cliente, p.vendedor, estadoTxt(p), i.nombre, i.cantidad, ce, p.estado === "entregado" ? i.cantidad - ce : 0, i.precio, i.cantidad * i.precio, ce * i.precio]);
+    });
+  });
+  const wsDet = hoja(det, [12, 12, 30, 22, 20, 40, 13, 14, 13, 12, 14, 14], [9, 10, 11]);
+
+  /* Pagos */
+  const wsPag = hoja([
+    ["Fecha", "Hora", "N° factura", "Cliente", "Monto", "Método"],
+    ...pagos.map(x => [fdd(x.dia), new Date(x.ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }), num.get(x.pedidoId) || "", x.cliente, x.monto, x.metodo])
+  ], [12, 10, 12, 32, 14, 16], [4]);
+
+  /* Fiado (siempre completo) */
+  const fi = {};
+  todosPed.filter(p => p.saldo > 0).forEach(p => {
+    const k = p.clienteId || p.cliente;
+    fi[k] = fi[k] || { cliente: p.cliente, tel: p.telefono || "", saldo: 0, n: 0 };
+    fi[k].saldo += p.saldo;
+    fi[k].n += 1;
+  });
+  const wsFi = hoja([["Cliente", "Teléfono", "Saldo por cobrar", "Pedidos con saldo"], ...Object.values(fi).sort((a, b) => b.saldo - a.saldo).map(x => [x.cliente, x.tel, x.saldo, x.n])], [34, 16, 18, 16], [2]);
+
+  /* Inventario, clientes, equipo */
+  const wsInv = hoja([["Producto", "Categoría", "Precio", "Stock", "Valor en inventario"], ...S.productos.map(p => [p.nombre, p.categoria, p.precio, p.stock || 0, (p.precio || 0) * (p.stock || 0)])], [44, 16, 12, 10, 18], [2, 4]);
+  const wsCli = hoja([["Cliente", "Teléfono", "Dirección", "Latitud", "Longitud", "Creado por"], ...S.clientes.map(c => [c.nombre, c.telefono || "", c.direccion || "", c.lat ?? "", c.lng ?? "", c.creadoPorNombre || ""])], [34, 16, 36, 12, 12, 22]);
+  const wsEq = hoja([["Nombre", "Correo", "Teléfono", "Rol", "Estado"], ...su.docs.map(d => d.data()).map(u => [u.nombre, u.email, u.telefono || "", u.role === "jefe" ? "Jefe" : "Vendedor", u.active === false ? "Desactivado" : "Activo"])], [26, 30, 16, 12, 14]);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsRes, "Resumen");
+  XLSX.utils.book_append_sheet(wb, wsPed, "Pedidos");
+  XLSX.utils.book_append_sheet(wb, wsDet, "Detalle productos");
+  XLSX.utils.book_append_sheet(wb, wsPag, "Pagos");
+  XLSX.utils.book_append_sheet(wb, wsFi, "Fiado");
+  XLSX.utils.book_append_sheet(wb, wsInv, "Inventario");
+  XLSX.utils.book_append_sheet(wb, wsCli, "Clientes");
+  XLSX.utils.book_append_sheet(wb, wsEq, "Equipo");
+  XLSX.writeFile(wb, `Emunah-resumen-${hoy()}.xlsx`);
 }
 
 /* ---------------------------- EQUIPO + RESPALDO (solo jefe) ---------------------------- */
@@ -1403,12 +1741,14 @@ function tabEquipo() {
     <div id="eqlista"><p class="vacio">Cargando…</p></div>
     <div class="card"><h3>Copia de seguridad</h3>
       <small style="color:var(--gris)">Descarga tus datos en archivos que abre Excel. Hazlo cada semana.</small>
+      <button id="xl2" class="btn" style="background:var(--morado);margin:8px 0">📥 Descargar Excel completo</button>
       <div class="row" style="flex-wrap:wrap;margin-top:8px">
         <button class="ghost" data-r="productos">Productos</button>
         <button class="ghost" data-r="clientes">Clientes</button>
         <button class="ghost" data-r="pedidos">Pedidos</button>
       </div>
     </div>`;
+  $("#xl2").onclick = modalExcel;
   document.querySelectorAll("[data-r]").forEach(b => { b.onclick = () => respaldo(b.dataset.r); });
   $("#fe").onsubmit = async e => {
     e.preventDefault();
