@@ -72,16 +72,24 @@ hr{border:0;border-top:1px solid var(--borde);margin:24px 0}
 .fhead{display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;color:#fff;background:linear-gradient(135deg,var(--verde),var(--morado));border-bottom:5px solid var(--naranja);-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .flogo{width:44px;height:44px;flex:none;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800}
 .fh1{flex:1}.fh1 b{display:block;font-size:20px}.fh1 span,.fh2 span{font-size:12px;opacity:.9}
-.fh2{text-align:right}.fh2 b{display:block;font-size:15px}
-.fcli{display:flex;justify-content:space-between;gap:12px;padding:14px 2px}
-.fcli small{display:block;color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}
-.fcli b{display:block;font-size:17px;margin:2px 0}
-.fcli span{display:block;font-size:13px}
+.fh2{text-align:right}.fh2 b{display:block;font-size:18px}.fh2 small{display:block;font-size:10px;letter-spacing:1px;opacity:.85}
+.femp{text-align:center;color:var(--gris);font-size:12px;margin:8px 0 10px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fbox{background:var(--fondo);border:1px solid var(--borde);border-radius:10px;padding:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.fbox small{display:block;color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}
+.fbox b{display:block;font-size:15px;margin:2px 0}
+.fbox span{display:block;font-size:12px;margin-top:2px}
+.fest{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 2px;font-size:14px}
+.fest small{color:var(--gris);font-size:11px;font-weight:700;letter-spacing:.5px}
+.chk{display:flex;align-items:center;gap:6px}
+.cb{display:inline-block;flex:none;width:20px;height:20px;border:2px solid var(--morado);border-radius:5px;position:relative;font-style:normal;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cb.on{background:var(--verde);border-color:var(--verde)}
+.cb.on::after{content:"✓";color:#fff;font-size:14px;font-weight:800;position:absolute;left:3px;top:-1px}
 .ft{width:100%;border-collapse:collapse}
-.ft th{background:var(--morado-claro);color:var(--morado);text-align:left;padding:8px;font-size:11px;letter-spacing:.4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ft th{background:var(--morado-claro);color:var(--morado);text-align:left;padding:8px;font-size:11px;letter-spacing:.4px;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .ft td{padding:8px;border-bottom:1px solid var(--borde);vertical-align:top}
 .ft tbody tr:nth-child(even) td{background:#faf7fb}
-.ft .n{text-align:right;white-space:nowrap}
+.ft .n{text-align:right;white-space:nowrap}.ft .c{text-align:center}
 .ft thead{display:table-header-group}.ft tr{break-inside:avoid;page-break-inside:avoid}
 .ftot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px;color:var(--gris);font-size:13px}
 .ftb{background:var(--naranja-claro);border-radius:12px;padding:10px 16px;text-align:right;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -101,7 +109,7 @@ hr{border:0;border-top:1px solid var(--borde);margin:24px 0}
 <script type="module">
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, getDocs, onSnapshot, writeBatch, increment, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, getDocs, onSnapshot, writeBatch, increment, arrayUnion, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 /* ============ 1) PEGA AQUÍ LAS CLAVES DE TU PROYECTO FIREBASE ============ */
 const firebaseConfig = {
@@ -124,7 +132,7 @@ const money = n => new Intl.NumberFormat("es-CO", { style: "currency", currency:
 const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const hora = ts => new Date(ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 const fh = ts => new Date(ts).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-const cod = p => String(p.id || "").slice(0, 6).toUpperCase();
+const cod = p => p.numero || String(p.id || "").slice(0, 6).toUpperCase();
 const sum = a => a.reduce((t, x) => t + (x.total || 0), 0);
 const pantalla = html => { $("#app").innerHTML = html; };
 const esJefe = () => S.perfil && S.perfil.role === "jefe";
@@ -500,14 +508,22 @@ async function guardarPedido() {
   btn.disabled = true;
   try {
     const data = {
-      uid: S.perfil.uid, vendedor: S.perfil.nombre,
+      uid: S.perfil.uid, vendedor: S.perfil.nombre, vendedorTel: S.perfil.telefono || "",
       clienteId: cli.id, cliente: cli.nombre, telefono: cli.telefono || "", direccion: cli.direccion || "",
       lat: cli.lat ?? null, lng: cli.lng ?? null,
       items, total, nota: S.nota.trim(),
       estado: "pendiente", pagado: 0, saldo: 0, pagos: [],
       dia: hoy(), ts: Date.now()
     };
-    const ref = await addDoc(collection(db, "pedidos"), data);
+    const ref = doc(collection(db, "pedidos"));
+    await runTransaction(db, async tx => {
+      const cref = doc(db, "config", "contador");
+      const cs = await tx.get(cref);
+      const n = (cs.exists() ? cs.data().n : 0) + 1;
+      data.numero = "A" + String(n).padStart(5, "0");
+      tx.set(cref, { n });
+      tx.set(ref, data);
+    });
     S.carrito = {};
     S.nota = "";
     renderLista();
@@ -521,8 +537,8 @@ async function guardarPedido() {
 }
 
 /* ---------------------------- FACTURA ---------------------------- */
-const textoEstado = p => p.estado === "pendiente" ? "Pendiente de entrega" : p.estado === "cancelado" ? "Cancelado" : p.saldo > 0 ? "Entregado · saldo pendiente" : "Entregado · pagado";
-const colorEstado = p => p.estado === "cancelado" ? "#c62828" : (p.estado === "pendiente" || p.saldo > 0) ? "#ef6c00" : "#2e7d32";
+const EMPRESA = { razon: "Distribuidora Emunáh SAS", dir: "Manzana G Casa 28", barrio: "Barrio Arcamonika", tel: "300-5606030" };
+const fd = ts => new Date(ts).toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 function descargarBlob(blob, nombre) {
   const a = document.createElement("a");
@@ -540,6 +556,7 @@ function facturaCanvas(p) {
   const VERDE = "#2e7d32", MORADO = "#6a1b9a", NARANJA = "#ef6c00", GRIS = "#6b7280", TEXTO = "#1f2937", BORDE = "#e5e7eb";
   const F = (px, w = 400) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
   const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
+  const pend = p.estado === "pendiente", ent = p.estado === "entregado";
 
   const cortar = (ctx, t, maxW, font) => {
     ctx.font = font;
@@ -591,40 +608,83 @@ function facturaCanvas(p) {
     rr(ctx, PAD, 26, 68, 68, 18);
     ctx.fill();
     T(ctx, "E", PAD + 34, 40, F(40, 800), "#fff", "center");
-    T(ctx, NEGOCIO, PAD + 88, 28, F(34, 800), "#fff");
-    T(ctx, "Factura de pedido", PAD + 88, 72, F(16), "rgba(255,255,255,0.88)");
-    T(ctx, "Pedido #" + cod(p), W - PAD, 30, F(22, 700), "#fff", "right");
-    T(ctx, fh(p.ts), W - PAD, 64, F(15), "rgba(255,255,255,0.88)", "right");
+    T(ctx, NEGOCIO, PAD + 88, 26, F(34, 800), "#fff");
+    T(ctx, EMPRESA.razon, PAD + 88, 70, F(15), "rgba(255,255,255,0.9)");
+    T(ctx, "FACTURA", W - PAD, 20, F(13, 700), "rgba(255,255,255,0.85)", "right");
+    T(ctx, "No. " + cod(p), W - PAD, 38, F(30, 800), "#fff", "right");
+    T(ctx, "Fecha: " + fd(p.ts), W - PAD, 80, F(15), "rgba(255,255,255,0.9)", "right");
+    T(ctx, `${EMPRESA.dir} · ${EMPRESA.barrio} · Tel. ${EMPRESA.tel}`, W / 2, 142, F(14), GRIS, "center");
 
-    /* Cliente y estado */
-    let y = 156;
-    T(ctx, "CLIENTE", PAD, y, F(12, 700), GRIS);
-    let yl = y + 18;
-    envolver(ctx, p.cliente, 440, 2, F(22, 800)).forEach(l => { T(ctx, l, PAD, yl, F(22, 800), TEXTO); yl += 28; });
-    yl += 4;
-    if (p.telefono) { T(ctx, "Tel: " + p.telefono, PAD, yl, F(15), TEXTO); yl += 22; }
-    if (p.direccion) envolver(ctx, p.direccion, 440, 2, F(15)).forEach(l => { T(ctx, l, PAD, yl, F(15), TEXTO); yl += 21; });
-    T(ctx, "ESTADO", W - PAD, y, F(12, 700), GRIS, "right");
-    let yr = y + 18;
-    envolver(ctx, textoEstado(p), 250, 2, F(16, 700)).forEach(l => { T(ctx, l, W - PAD, yr, F(16, 700), colorEstado(p), "right"); yr += 22; });
-    y = Math.max(yl, yr) + 18;
+    /* Cliente y vendedor */
+    let y = 176;
+    const bw = (W - 2 * PAD - 16) / 2;
+    const nomC = envolver(ctx, p.cliente, bw - 28, 2, F(20, 800));
+    const extC = [...(p.direccion ? envolver(ctx, p.direccion, bw - 28, 2, F(15)) : []), ...(p.telefono ? ["Tel: " + p.telefono] : [])];
+    const nomV = envolver(ctx, p.vendedor, bw - 28, 2, F(20, 800));
+    const extV = p.vendedorTel ? ["Tel: " + p.vendedorTel] : [];
+    const bh = Math.max(30 + nomC.length * 26 + extC.length * 21 + 14, 30 + nomV.length * 26 + extV.length * 21 + 14, 84);
+    const caja = (x, etiqueta, nombre, extras) => {
+      ctx.fillStyle = "#f7f7f4";
+      rr(ctx, x, y, bw, bh, 12);
+      ctx.fill();
+      ctx.strokeStyle = BORDE;
+      ctx.lineWidth = 1;
+      rr(ctx, x, y, bw, bh, 12);
+      ctx.stroke();
+      T(ctx, etiqueta, x + 14, y + 12, F(12, 700), GRIS);
+      let yy = y + 30;
+      nombre.forEach(l => { T(ctx, l, x + 14, yy, F(20, 800), TEXTO); yy += 26; });
+      extras.forEach(l => { T(ctx, l, x + 14, yy, F(15), TEXTO); yy += 21; });
+    };
+    caja(PAD, "CLIENTE", nomC, extC);
+    caja(PAD + bw + 16, "VENDEDOR", nomV, extV);
+    y += bh + 18;
+
+    /* Estado con casillas */
+    T(ctx, "ESTADO", PAD, y + 6, F(12, 700), GRIS);
+    const casilla = (x, on, etiqueta) => {
+      if (on) {
+        ctx.fillStyle = VERDE;
+        rr(ctx, x, y, 24, 24, 6);
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(x + 6, y + 12.5);
+        ctx.lineTo(x + 10.5, y + 17);
+        ctx.lineTo(x + 18, y + 7);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = MORADO;
+        ctx.lineWidth = 2.5;
+        rr(ctx, x + 1, y + 1, 22, 22, 6);
+        ctx.stroke();
+      }
+      T(ctx, etiqueta, x + 34, y + 3, F(16, on ? 700 : 400), TEXTO);
+    };
+    casilla(PAD + 90, pend, "Pendiente de entrega");
+    casilla(PAD + 390, ent, "Entregado");
+    if (p.estado === "cancelado") T(ctx, "CANCELADO", W - PAD, y + 3, F(16, 800), "#c62828", "right");
+    y += 24 + 22;
 
     /* Tabla de productos */
     ctx.fillStyle = "#f3e5f5";
     rr(ctx, PAD, y, W - 2 * PAD, 34, 8);
     ctx.fill();
-    T(ctx, "CANT.", PAD + 14, y + 11, F(12, 700), MORADO);
-    T(ctx, "PRODUCTO", 118, y + 11, F(12, 700), MORADO);
-    T(ctx, "V. UNIT.", 596, y + 11, F(12, 700), MORADO, "right");
-    T(ctx, "SUBTOTAL", W - PAD - 14, y + 11, F(12, 700), MORADO, "right");
+    T(ctx, "ITEM", PAD + 14, y + 11, F(12, 700), MORADO);
+    T(ctx, "CANT.", 430, y + 11, F(12, 700), MORADO, "center");
+    T(ctx, "PRECIO", 585, y + 11, F(12, 700), MORADO, "right");
+    T(ctx, "VALOR TOTAL", W - PAD - 14, y + 11, F(12, 700), MORADO, "right");
     y += 34;
     p.items.forEach((i, k) => {
-      const lin = envolver(ctx, i.nombre, 380, 2, F(16));
+      const lin = envolver(ctx, i.nombre, 340, 2, F(16));
       const h = lin.length * 21 + 18;
       if (k % 2) { ctx.fillStyle = "#faf7fb"; ctx.fillRect(PAD, y, W - 2 * PAD, h); }
-      T(ctx, String(i.cantidad), PAD + 14, y + 9, F(16, 700), TEXTO);
-      lin.forEach((l, n) => T(ctx, l, 118, y + 9 + n * 21, F(16), TEXTO));
-      T(ctx, money(i.precio), 596, y + 9, F(15), GRIS, "right");
+      lin.forEach((l, n) => T(ctx, l, PAD + 14, y + 9 + n * 21, F(16), TEXTO));
+      T(ctx, String(i.cantidad), 430, y + 9, F(16, 700), TEXTO, "center");
+      T(ctx, money(i.precio), 585, y + 9, F(15), GRIS, "right");
       T(ctx, money(i.cantidad * i.precio), W - PAD - 14, y + 9, F(16, 700), TEXTO, "right");
       ctx.fillStyle = BORDE;
       ctx.fillRect(PAD, y + h - 1, W - 2 * PAD, 1);
@@ -641,7 +701,7 @@ function facturaCanvas(p) {
     T(ctx, "TOTAL", bx + 18, y + 14, F(13, 700), NARANJA);
     T(ctx, money(p.total), bx + 302, y + 16, F(32, 800), NARANJA, "right");
     y += 66;
-    if (p.estado === "entregado") {
+    if (ent) {
       y += 14;
       T(ctx, "Pagado", bx + 18, y, F(15), GRIS);
       T(ctx, money(p.pagado), bx + 302, y, F(15, 700), VERDE, "right");
@@ -662,7 +722,7 @@ function facturaCanvas(p) {
     ctx.fillStyle = BORDE;
     ctx.fillRect(PAD, y, W - 2 * PAD, 1);
     T(ctx, "¡Gracias por tu compra!", W / 2, y + 20, F(20, 800), MORADO, "center");
-    T(ctx, `Atendió: ${p.vendedor} · ${NEGOCIO}`, W / 2, y + 52, F(13), GRIS, "center");
+    T(ctx, EMPRESA.razon, W / 2, y + 52, F(13), GRIS, "center");
     y += 86;
     ctx.fillStyle = g;
     ctx.fillRect(0, y, W, 8);
@@ -699,7 +759,7 @@ async function compartirFactura(p) {
     const file = new File([blob], nombre, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: `Factura ${NEGOCIO}`, text: `Factura ${NEGOCIO} · ${p.cliente} · ${money(p.total)}` });
+        await navigator.share({ files: [file], title: `Factura ${NEGOCIO}`, text: `Factura ${cod(p)} · ${p.cliente} · ${money(p.total)}` });
         return;
       } catch (e) { if (e && e.name === "AbortError") return; }
     }
@@ -710,34 +770,36 @@ async function compartirFactura(p) {
 
 function factura(p) {
   const unidades = p.items.reduce((t, i) => t + i.cantidad, 0);
+  const pend = p.estado === "pendiente", ent = p.estado === "entregado";
   const w = modal(`
     <div class="factura">
       <div class="fhead">
         <div class="flogo">E</div>
-        <div class="fh1"><b>${NEGOCIO}</b><span>Factura de pedido</span></div>
-        <div class="fh2"><b>Pedido #${cod(p)}</b><span>${fh(p.ts)}</span></div>
+        <div class="fh1"><b>${NEGOCIO}</b><span>${EMPRESA.razon}</span></div>
+        <div class="fh2"><small>FACTURA</small><b>No. ${esc(cod(p))}</b><span>Fecha: ${fd(p.ts)}</span></div>
       </div>
-      <div class="fcli">
-        <div>
-          <small>CLIENTE</small><b>${esc(p.cliente)}</b>
-          ${p.telefono ? `<span>Tel: ${esc(p.telefono)}</span>` : ""}
-          ${p.direccion ? `<span>${esc(p.direccion)}</span>` : ""}
-        </div>
-        <div style="text-align:right">
-          <small>ESTADO</small><b style="color:${colorEstado(p)};font-size:14px">${esc(textoEstado(p))}</b>
-        </div>
+      <div class="femp">${EMPRESA.dir} · ${EMPRESA.barrio} · Tel. ${EMPRESA.tel}</div>
+      <div class="fgrid">
+        <div class="fbox"><small>CLIENTE</small><b>${esc(p.cliente)}</b>${p.direccion ? `<span>${esc(p.direccion)}</span>` : ""}${p.telefono ? `<span>Tel: ${esc(p.telefono)}</span>` : ""}</div>
+        <div class="fbox"><small>VENDEDOR</small><b>${esc(p.vendedor)}</b>${p.vendedorTel ? `<span>Tel: ${esc(p.vendedorTel)}</span>` : ""}</div>
+      </div>
+      <div class="fest">
+        <small>ESTADO</small>
+        <span class="chk"><i class="cb ${pend ? "on" : ""}"></i>Pendiente de entrega</span>
+        <span class="chk"><i class="cb ${ent ? "on" : ""}"></i>Entregado</span>
+        ${p.estado === "cancelado" ? '<span class="pill off">Cancelado</span>' : ""}
       </div>
       <table class="ft">
-        <thead><tr><th>Cant.</th><th>Producto</th><th class="n">V. unit.</th><th class="n">Subtotal</th></tr></thead>
-        <tbody>${p.items.map(i => `<tr><td><b>${i.cantidad}</b></td><td>${esc(i.nombre)}</td><td class="n">${money(i.precio)}</td><td class="n"><b>${money(i.cantidad * i.precio)}</b></td></tr>`).join("")}</tbody>
+        <thead><tr><th>Item</th><th class="c">Cant.</th><th class="n">Precio</th><th class="n">Valor total</th></tr></thead>
+        <tbody>${p.items.map(i => `<tr><td>${esc(i.nombre)}</td><td class="c"><b>${i.cantidad}</b></td><td class="n">${money(i.precio)}</td><td class="n"><b>${money(i.cantidad * i.precio)}</b></td></tr>`).join("")}</tbody>
       </table>
       <div class="ftot">
         <span>${p.items.length} producto(s) · ${unidades} unidad(es)</span>
         <div class="ftb"><small>TOTAL</small><b>${money(p.total)}</b></div>
       </div>
-      ${p.estado === "entregado" ? `<div class="lin"><span>Pagado</span><b style="color:var(--verde)">${money(p.pagado)}</b></div><div class="lin"><span>Saldo pendiente</span><b style="color:${p.saldo > 0 ? "var(--naranja)" : "var(--verde)"}">${money(p.saldo)}</b></div>` : ""}
+      ${ent ? `<div class="lin"><span>Pagado</span><b style="color:var(--verde)">${money(p.pagado)}</b></div><div class="lin"><span>Saldo pendiente</span><b style="color:${p.saldo > 0 ? "var(--naranja)" : "var(--verde)"}">${money(p.saldo)}</b></div>` : ""}
       ${p.nota ? `<div style="margin-top:10px"><small style="color:var(--gris);font-weight:700">OBSERVACIONES</small><div>${esc(p.nota)}</div></div>` : ""}
-      <div class="fpie">¡Gracias por tu compra!<small>Atendió: ${esc(p.vendedor)} · ${NEGOCIO}</small></div>
+      <div class="fpie">¡Gracias por tu compra!<small>${EMPRESA.razon}</small></div>
     </div>
     <div class="noprint acciones">
       <button id="f-sh" class="btn">📤 Compartir factura (WhatsApp)</button>
@@ -754,7 +816,7 @@ function factura(p) {
     } catch (e) { toast("No se pudo crear la imagen: " + e.message); }
   };
   if (p.telefono) w.querySelector("#f-wa").onclick = () => {
-    const txt = `*${NEGOCIO}* — Pedido #${cod(p)}\nCliente: ${p.cliente}\n${p.items.length} producto(s) · ${unidades} unidad(es)\n*Total: ${money(p.total)}*\n\n¡Gracias por tu compra!`;
+    const txt = `*${NEGOCIO}* — Factura ${cod(p)}\nCliente: ${p.cliente}\n${p.items.length} producto(s) · ${unidades} unidad(es)\n*Total: ${money(p.total)}*\n\n¡Gracias por tu compra!`;
     const tel = (p.telefono || "").replace(/\D/g, "");
     const num = tel.length === 10 ? "57" + tel : tel;
     window.open(`https://wa.me/${num}?text=${encodeURIComponent(txt)}`, "_blank");
@@ -1331,6 +1393,7 @@ function tabEquipo() {
     <div class="card"><h3>Nuevo vendedor</h3>
       <form id="fe">
         <input id="e-n" placeholder="Nombre" required>
+        <input id="e-t" type="tel" inputmode="tel" placeholder="Teléfono (opcional, sale en las facturas)">
         <input id="e-m" type="email" placeholder="Correo" required>
         <input id="e-p" type="text" placeholder="Clave inicial (mínimo 6)" minlength="6" required autocomplete="off">
         <button class="btn">Crear vendedor</button>
@@ -1350,6 +1413,7 @@ function tabEquipo() {
   $("#fe").onsubmit = async e => {
     e.preventDefault();
     const nombre = $("#e-n").value.trim();
+    const tel = $("#e-t").value.trim();
     const email = $("#e-m").value.trim();
     const pass = $("#e-p").value;
     const btn = e.target.querySelector("button");
@@ -1366,7 +1430,7 @@ function tabEquipo() {
         catch (er1) { throw { code: "ya-existe" }; }
         if ((await getDoc(doc(db, "users", cred.user.uid))).exists()) { await signOut(secAuth); throw { code: "ya-en-equipo" }; }
       }
-      await setDoc(doc(db, "users", cred.user.uid), { nombre, email, role: "vendedor", active: true, creado: Date.now() });
+      await setDoc(doc(db, "users", cred.user.uid), { nombre, email, telefono: tel, role: "vendedor", active: true, creado: Date.now() });
       await signOut(secAuth);
       e.target.reset();
       toast("Vendedor creado. Pásale su correo y clave.");
@@ -1388,18 +1452,25 @@ async function cargarEquipo() {
     el.innerHTML = u.map(x => `
       <div class="card">
         <div class="lin" style="border:0;padding:0"><b>${esc(x.nombre)}<span class="pill ${x.active === false ? "off" : ""}">${x.role === "jefe" ? "Jefe" : x.active === false ? "Desactivado" : "Vendedor"}</span></b></div>
-        <small style="color:var(--gris)">${esc(x.email)}</small>
-        ${x.uid !== S.perfil.uid ? `<div class="row" style="margin-top:8px">
+        <small style="color:var(--gris)">${esc(x.email)}${x.telefono ? " · 📞 " + esc(x.telefono) : ""}</small>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="ghost" data-act="tel" data-uid="${x.uid}" data-tel="${esc(x.telefono || "")}">📞 Teléfono</button>${x.uid !== S.perfil.uid ? `
           <button class="ghost" data-act="toggle" data-uid="${x.uid}" data-on="${x.active === false ? 1 : 0}">${x.active === false ? "Activar" : "Desactivar"}</button>
           <button class="ghost" data-act="reset" data-mail="${esc(x.email)}">Restablecer clave</button>
           <button class="ghost" style="color:#c62828" data-act="del" data-uid="${x.uid}" data-nombre="${esc(x.nombre)}">Eliminar</button>
-        </div>` : ""}
+        ` : ""}</div>
       </div>`).join("");
     el.onclick = async e => {
       const b = e.target.closest("button[data-act]");
       if (!b) return;
       try {
-        if (b.dataset.act === "del") {
+        if (b.dataset.act === "tel") {
+          const t = prompt("Teléfono (sale en las facturas):", b.dataset.tel || "");
+          if (t === null) return;
+          await updateDoc(doc(db, "users", b.dataset.uid), { telefono: t.trim() });
+          if (b.dataset.uid === S.perfil.uid) S.perfil.telefono = t.trim();
+          toast("Teléfono guardado");
+          cargarEquipo();
+        } else if (b.dataset.act === "del") {
           if (!confirm("¿Eliminar a " + b.dataset.nombre + " del equipo? Ya no podrá entrar a la app. Sus pedidos anteriores se conservan en el historial.")) return;
           await deleteDoc(doc(db, "users", b.dataset.uid));
           toast("Vendedor eliminado");
